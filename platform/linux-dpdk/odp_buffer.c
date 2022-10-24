@@ -15,20 +15,6 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-int _odp_buffer_type(odp_buffer_t buf)
-{
-	odp_buffer_hdr_t *hdr = _odp_buf_hdr(buf);
-
-	return hdr->event_hdr.type;
-}
-
-void _odp_buffer_type_set(odp_buffer_t buf, int type)
-{
-	odp_buffer_hdr_t *hdr = _odp_buf_hdr(buf);
-
-	hdr->event_hdr.type = type;
-}
-
 int odp_buffer_is_valid(odp_buffer_t buf)
 {
 	if (odp_event_is_valid(odp_buffer_to_event(buf)) == 0)
