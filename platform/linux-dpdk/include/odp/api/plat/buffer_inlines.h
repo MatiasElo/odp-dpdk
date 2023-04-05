@@ -26,6 +26,7 @@
 #if defined(__PPC64__) && defined(vector)
 	#undef vector
 #endif
+#include <rte_version.h>
 
 /** @cond _ODP_HIDE_FROM_DOXYGEN_ */
 
@@ -140,6 +141,15 @@ _ODP_INLINE int odp_buffer_is_valid(odp_buffer_t buf)
 
 	if (odp_unlikely(_odp_buffer_validate(buf, _ODP_EV_BUFFER_IS_VALID)))
 		return 0;
+
+#if RTE_VERSION >= RTE_VERSION_NUM(21, 11, 0, 0)
+	const char *reason;
+
+	if (odp_unlikely(((struct rte_mbuf *))buf, 1, &reason)) {
+		_ODP_ERR("rte_mbuf_check(): %s\n", reason);
+		return 0;
+	}
+#endif
 
 	return 1;
 }
