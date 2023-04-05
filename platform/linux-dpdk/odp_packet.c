@@ -32,6 +32,7 @@
 #include <odp_pool_internal.h>
 #include <odp_print_internal.h>
 
+#include <rte_mbuf.h>
 #include <rte_version.h>
 
 #include <protocols/eth.h>
@@ -1148,6 +1149,15 @@ int odp_packet_is_valid(odp_packet_t pkt)
 
 	if (odp_unlikely(_odp_packet_validate(pkt, _ODP_EV_PACKET_IS_VALID)))
 		return 0;
+
+#if RTE_VERSION >= RTE_VERSION_NUM(21, 11, 0, 0)
+	const char *reason;
+
+	if (odp_unlikely(rte_mbuf_check(pkt_to_mbuf(pkt), 1, &reason))) {
+		_ODP_ERR("rte_mbuf_check(): %s\n", reason);
+		return 0;
+	}
+#endif
 
 	switch (odp_event_subtype(ev)) {
 	case ODP_EVENT_PACKET_BASIC:
