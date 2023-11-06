@@ -22,6 +22,7 @@
 #include <odp_debug_internal.h>
 #include <odp_eventdev_internal.h>
 #include <odp_libconfig_internal.h>
+#include <odp_macros_internal.h>
 #include <odp_packet_dpdk.h>
 #include <odp_packet_internal.h>
 #include <odp_packet_io_internal.h>
@@ -43,13 +44,16 @@
 #include <linux/sockios.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <net/if.h>
 #include <poll.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -121,6 +125,7 @@ typedef struct {
 	int num_tx_desc_default;
 	int rx_drop_en;
 	int tx_offload_multi_segs;
+	int rx_intr;
 } dpdk_opt_t;
 
 /* DPDK pktio specific data */
@@ -157,6 +162,12 @@ typedef struct ODP_ALIGNED_CACHE {
 	uint16_t num_rx_desc[ODP_PKTIN_MAX_QUEUES];
 	/* Number of TX descriptors per queue */
 	uint16_t num_tx_desc[ODP_PKTOUT_MAX_QUEUES];
+
+	/* RX interrupt status per queue */
+	struct {
+		int epfd;
+		uint8_t configured;
+	} rx_intr[ODP_PKTIN_MAX_QUEUES];
 
 	/* --- Locks for MT safe operations --- */
 
@@ -242,6 +253,10 @@ static int init_options(pktio_entry_t *pktio_entry,
 		return -1;
 	opt->tx_offload_multi_segs = !!opt->tx_offload_multi_segs;
 
+	if (!lookup_opt("rx_intr", dev_info->driver_name, &opt->rx_intr))
+		return -1;
+	opt->rx_intr = !!opt->rx_intr;
+
 	_ODP_DBG("DPDK interface (%s): %" PRIu16 "\n", dev_info->driver_name,
 		 pkt_priv(pktio_entry)->port_id);
 	_ODP_DBG("  multicast:   %d\n", opt->multicast_enable);
@@ -249,6 +264,7 @@ static int init_options(pktio_entry_t *pktio_entry,
 	_ODP_DBG("  num_tx_desc: %d\n", opt->num_tx_desc_default);
 	_ODP_DBG("  rx_drop_en:  %d\n", opt->rx_drop_en);
 	_ODP_DBG("  tx_offload_multi_segs: %d\n", opt->tx_offload_multi_segs);
+	_ODP_DBG("  rx_intr:     %d\n", opt->rx_intr);
 
 	return 0;
 }
@@ -372,6 +388,9 @@ static int dpdk_setup_eth_dev(pktio_entry_t *pktio_entry, const struct rte_eth_d
 #endif
 		rte_pktmbuf_data_room_size(pool->rte_mempool) -
 		2 * 4 - RTE_PKTMBUF_HEADROOM;
+
+	if (pkt_dpdk->opt.rx_intr)
+		eth_conf.intr_conf.rxq = 1;
 
 	ret = rte_eth_dev_configure(pkt_dpdk->port_id,
 				    pktio_entry->num_in_queue,
@@ -1126,6 +1145,144 @@ static int recv_pkt_dpdk(pktio_entry_t *pktio_entry, int index,
 	return 0;
 }
 
+static inline int configure_epoll(pkt_dpdk_t * const pkt_dpdk, uint16_t port_id, uint16_t queue_id)
+{
+	int epfd, ret;
+
+	if (odp_likely(pkt_dpdk->rx_intr[queue_id].configured))
+		return 0;
+
+	epfd = epoll_create1(0);
+	if (epfd < 0) {
+		_ODP_ERR("epoll_create1 failed: %s\n", strerror(errno));
+		return -1;
+	}
+
+	ret = rte_eth_dev_rx_intr_ctl_q(port_id, queue_id, epfd, RTE_INTR_EVENT_ADD, 0);
+	if (odp_unlikely(ret)) {
+		_ODP_ERR("Failed to set DPDK RX interrupt control per queue: %d\n", ret);
+		close(epfd);
+		return -1;
+	}
+
+	pkt_dpdk->rx_intr[queue_id].epfd = epfd;
+	pkt_dpdk->rx_intr[queue_id].configured = 1;
+
+	return 0;
+}
+
+static int dpdk_recv_tmo_intr(pktio_entry_t *pktio_entry, int index, odp_packet_t pkt_table[],
+			      int num, uint64_t wait_usecs)
+{
+	pkt_dpdk_t * const pkt_dpdk = pkt_priv(pktio_entry);
+	const uint16_t port_id = pkt_dpdk->port_id;
+	const uint16_t queue_id = (uint16_t)index;
+	const uint8_t lockless = pkt_dpdk->flags.lockless_rx;
+	int ret, epoll_timeout;
+	struct rte_epoll_event event[num];
+
+	// TODO: close epfd
+
+	_ODP_ASSERT(num > 0);
+
+	if (!lockless)
+		odp_ticketlock_lock(&pkt_dpdk->rx_lock[queue_id]);
+
+	if (configure_epoll(pkt_dpdk, port_id, queue_id))
+		goto err;
+
+	ret = rte_eth_dev_rx_intr_enable(port_id, queue_id);
+	if (odp_unlikely(ret)) {
+		_ODP_ERR("Failed enable RX interrupts: %d\n", ret);
+		goto err;
+	}
+
+	/* odp_pktin_wait_time() returns microseconds, rte_epoll_wait() expects milliseconds. */
+	epoll_timeout = (wait_usecs == ODP_PKTIN_NO_WAIT) ? 0 : _ODP_MAX((wait_usecs / 1000), 1u);
+
+	/* Starts returning 0 after overload, so ignore return value for now. */
+	(void)rte_epoll_wait(pkt_dpdk->rx_intr[queue_id].epfd, event, num, epoll_timeout);
+
+	ret = rte_eth_dev_rx_intr_disable(port_id, queue_id);
+	if (odp_unlikely(ret)) {
+		_ODP_ERR("Failed disable RX interrupts: %d\n", ret);
+		goto err;
+	}
+
+	if (!lockless)
+		odp_ticketlock_unlock(&pkt_dpdk->rx_lock[queue_id]);
+
+	return recv_pkt_dpdk(pktio_entry, queue_id, pkt_table, num);
+
+err:
+	if (!lockless)
+		odp_ticketlock_unlock(&pkt_dpdk->rx_lock[queue_id]);
+	return -1;
+}
+
+/* Sleep this many microseconds between pktin receive calls. Must be smaller
+ * than 1000000 (a million), i.e. smaller than a second. */
+#define SLEEP_USEC  1
+
+/* Check total sleep time about every SLEEP_CHECK * SLEEP_USEC microseconds.
+ * Must be power of two. */
+#define SLEEP_CHECK 32
+
+/* Max wait time supported to avoid potential overflow */
+#define MAX_WAIT_TIME (UINT64_MAX / 1024)
+
+static int dpdk_recv_tmo_sleep(pktio_entry_t *pktio_entry, int index, odp_packet_t pkt_table[],
+			       int num, uint64_t wait)
+{
+	int ret;
+	odp_time_t t1, t2;
+	struct timespec ts = {.tv_sec  = 0, .tv_nsec = 1000 * SLEEP_USEC};
+	int started = 0;
+	uint64_t sleep_round = 0;
+
+	while (1) {
+		ret = recv_pkt_dpdk(pktio_entry, index, pkt_table, num);
+
+		if (ret != 0 || wait == 0)
+			return ret;
+
+		/* Avoid unnecessary system calls. Record the start time
+		 * only when needed and after the first call to recv. */
+		if (odp_unlikely(!started)) {
+			odp_time_t t;
+
+			/* Avoid overflow issues for large wait times */
+			if (wait > MAX_WAIT_TIME)
+				wait = MAX_WAIT_TIME;
+			t = odp_time_local_from_ns(wait * 1000);
+			started = 1;
+			t1 = odp_time_sum(odp_time_local(), t);
+		}
+
+		/* Check every SLEEP_CHECK rounds if total wait time
+		 * has been exceeded. */
+		if ((++sleep_round & (SLEEP_CHECK - 1)) == 0) {
+			t2 = odp_time_local();
+
+			if (odp_time_cmp(t2, t1) > 0)
+				return 0;
+		}
+		wait = wait > SLEEP_USEC ? wait - SLEEP_USEC : 0;
+
+		nanosleep(&ts, NULL);
+	}
+}
+
+static int dpdk_recv_tmo(pktio_entry_t *pktio_entry, int index, odp_packet_t pkt_table[], int num,
+			 uint64_t wait)
+{
+	pkt_dpdk_t * const pkt_dpdk = pkt_priv(pktio_entry);
+
+	if (pkt_dpdk->opt.rx_intr)
+		return dpdk_recv_tmo_intr(pktio_entry, index, pkt_table, num, wait);
+	return dpdk_recv_tmo_sleep(pktio_entry, index, pkt_table, num, wait);
+}
+
 static inline int check_proto(void *l3_hdr, odp_bool_t *l3_proto_v4,
 			      uint8_t *l4_proto)
 {
@@ -1675,5 +1832,6 @@ const pktio_if_ops_t _odp_dpdk_pktio_ops = {
 	.input_queues_config = dpdk_input_queues_config,
 	.output_queues_config = dpdk_output_queues_config,
 	.recv = recv_pkt_dpdk,
+	.recv_tmo = dpdk_recv_tmo,
 	.send = send_pkt_dpdk
 };
