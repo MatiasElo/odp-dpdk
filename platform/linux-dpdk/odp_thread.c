@@ -7,6 +7,7 @@
 
 #include <odp/api/align.h>
 #include <odp/api/atomic.h>
+#include <odp/api/cpu.h>
 #include <odp/api/hints.h>
 #include <odp/api/shared_memory.h>
 #include <odp/api/spinlock.h>
@@ -122,18 +123,18 @@ uint64_t _odp_thread_thrmask_epoch(void)
 	return odp_atomic_load_u64(&thread_globals->thrmask_all_epoch);
 }
 
-int _odp_thread_cpu_ids(unsigned int cpu_ids[], int max_num)
+int _odp_thread_ids(unsigned int ids[], int max_num)
 {
 	odp_thrmask_t *all = &thread_globals->all;
-	int num_cpus = 0;
+	int num = 0;
 	uint32_t thr;
 
-	for (thr = 0; num_cpus < max_num && thr < thread_globals->num_max; thr++) {
+	for (thr = 0; num < max_num && thr < thread_globals->num_max; thr++) {
 		if (odp_thrmask_isset(all, thr))
-			cpu_ids[num_cpus++] = thread_globals->thr[thr].cpu;
+			ids[num++] = thread_globals->thr[thr].thr;
 	}
 
-	return num_cpus;
+	return num;
 }
 
 static int alloc_id(odp_thread_type_t type)
@@ -189,7 +190,7 @@ static int free_id(int thr)
 	return odp_atomic_fetch_dec_u32(&thread_globals->num) - 1;
 }
 
-static int cpu_id(void)
+int odp_cpu_id(void)
 {
 	int cpu = sched_getcpu();
 
@@ -203,7 +204,6 @@ static int cpu_id(void)
 int _odp_thread_init_local(odp_thread_type_t type)
 {
 	int id;
-	int cpu;
 	int group_all, group_worker, group_control;
 
 	group_all = 1;
@@ -228,15 +228,9 @@ int _odp_thread_init_local(odp_thread_type_t type)
 		return -1;
 	}
 
-	cpu = cpu_id();
-	if (cpu < 0)
-		return -1;
-
 	thread_globals->thr[id].thr  = id;
-	thread_globals->thr[id].cpu  = odp_global_ro.system_info.cpu_id_static ? cpu : -1;
-	thread_globals->thr[id].cpu_id_fn = cpu_id;
 	thread_globals->thr[id].type = type;
-	RTE_PER_LCORE(_lcore_id) = cpu;
+	RTE_PER_LCORE(_lcore_id) = id;
 
 	_odp_this_thread = &thread_globals->thr[id];
 

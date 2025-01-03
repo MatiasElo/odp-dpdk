@@ -171,8 +171,8 @@ typedef struct timer_local_t {
 	odp_time_t   last_run;
 	uint64_t     thrmask_epoch;
 	int          run_cnt;
-	int          num_poll_cores;
-	unsigned int poll_cores[ODP_THREAD_COUNT_MAX];
+	int          num_poll;
+	unsigned int poll_ids[ODP_THREAD_COUNT_MAX];
 
 } timer_local_t;
 
@@ -252,16 +252,15 @@ static inline int timer_alt_manage(void)
 	uint64_t thrmask_epoch = _odp_thread_thrmask_epoch();
 
 	if (odp_unlikely(timer_local.thrmask_epoch != thrmask_epoch)) {
-		int cpu_ids = _odp_thread_cpu_ids(timer_local.poll_cores,
-							ODP_THREAD_COUNT_MAX);
+		int ids = _odp_thread_ids(timer_local.poll_ids, ODP_THREAD_COUNT_MAX);
 
-		timer_local.num_poll_cores = cpu_ids;
+		timer_local.num_poll = ids;
 		timer_local.thrmask_epoch = thrmask_epoch;
 	}
 
 	return rte_timer_alt_manage(timer_global->data_id,
-				    timer_local.poll_cores,
-				    timer_local.num_poll_cores,
+				    timer_local.poll_ids,
+				    timer_local.num_poll,
 				    timer_alt_manage_cb);
 }
 
