@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2013-2018 Linaro Limited
- * Copyright (c) 2019-2023 Nokia
+ * Copyright (c) 2019-2025 Nokia
  */
 
 #include <odp/api/align.h>
@@ -8,6 +8,7 @@
 #include <odp/api/pool.h>
 #include <odp/api/shared_memory.h>
 #include <odp/api/std_types.h>
+#include <odp/api/ticketlock.h>
 
 #include <odp/api/plat/pool_inline_types.h>
 
@@ -40,18 +41,6 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef POOL_USE_TICKETLOCK
-#include <odp/api/ticketlock.h>
-#define LOCK(a)      odp_ticketlock_lock(a)
-#define UNLOCK(a)    odp_ticketlock_unlock(a)
-#define LOCK_INIT(a) odp_ticketlock_init(a)
-#else
-#include <odp/api/spinlock.h>
-#define LOCK(a)      odp_spinlock_lock(a)
-#define UNLOCK(a)    odp_spinlock_unlock(a)
-#define LOCK_INIT(a) odp_spinlock_init(a)
-#endif
 
 /* Pool name format */
 #define POOL_NAME_FORMAT "%" PRIu64 "-%d-%s"
@@ -185,7 +174,7 @@ int _odp_pool_init_global(void)
 	for (i = 0; i < CONFIG_POOLS; i++) {
 		pool_t *pool = _odp_pool_entry_from_idx(i);
 
-		LOCK_INIT(&pool->lock);
+		odp_ticketlock_init(&pool->lock);
 		pool->pool_idx = i;
 	}
 
@@ -589,10 +578,10 @@ static pool_t *get_unused_pool(void)
 
 	for (int i = 0; i < CONFIG_POOLS; i++) {
 		pool = _odp_pool_entry_from_idx(i);
-		LOCK(&pool->lock);
+		odp_ticketlock_lock(&pool->lock);
 
 		if (pool->rte_mempool != NULL) {
-			UNLOCK(&pool->lock);
+			odp_ticketlock_unlock(&pool->lock);
 			continue;
 		}
 
@@ -733,7 +722,7 @@ odp_pool_t _odp_pool_create(const char *name, const odp_pool_param_t *params,
 		priv_data.event_type = ODP_EVENT_PACKET_VECTOR;
 		break;
 	default:
-		UNLOCK(&pool->lock);
+		odp_ticketlock_unlock(&pool->lock);
 		_ODP_ERR("Bad pool type %i\n", params->type);
 		return ODP_POOL_INVALID;
 	}
@@ -743,7 +732,7 @@ odp_pool_t _odp_pool_create(const char *name, const odp_pool_param_t *params,
 		 pool->name, num, priv_size, align, data_size, seg_size, uarea_size);
 
 	if (priv_size > UINT16_MAX || data_size > UINT16_MAX) {
-		UNLOCK(&pool->lock);
+		odp_ticketlock_unlock(&pool->lock);
 		_ODP_ERR("Invalid element size(s), private: %u, data room: %u (max: %u)\n",
 			 priv_size, data_size, UINT16_MAX);
 		return ODP_POOL_INVALID;
@@ -754,13 +743,13 @@ odp_pool_t _odp_pool_create(const char *name, const odp_pool_param_t *params,
 				     data_size, rte_socket_id());
 
 	if (mp == NULL) {
-		UNLOCK(&pool->lock);
+		odp_ticketlock_unlock(&pool->lock);
 		_ODP_ERR("Cannot init DPDK mbuf pool: %s\n", rte_strerror(rte_errno));
 		return ODP_POOL_INVALID;
 	}
 
 	if (reserve_uarea(pool, uarea_size, num)) {
-		UNLOCK(&pool->lock);
+		odp_ticketlock_unlock(&pool->lock);
 		_ODP_ERR("User area SHM reserve failed\n");
 		rte_mempool_free(mp);
 		return ODP_POOL_INVALID;
@@ -775,7 +764,7 @@ odp_pool_t _odp_pool_create(const char *name, const odp_pool_param_t *params,
 
 	rte_mempool_obj_iter(mp, init_obj_priv_data, &priv_data);
 
-	UNLOCK(&pool->lock);
+	odp_ticketlock_unlock(&pool->lock);
 	pool_hdl = _odp_pool_handle(pool);
 
 	return pool_hdl;
@@ -797,13 +786,13 @@ odp_pool_t odp_pool_lookup(const char *name)
 	for (i = 0; i < CONFIG_POOLS; i++) {
 		pool = _odp_pool_entry_from_idx(i);
 
-		LOCK(&pool->lock);
+		odp_ticketlock_lock(&pool->lock);
 		if (strcmp(name, pool->name) == 0) {
 			/* Found it */
-			UNLOCK(&pool->lock);
+			odp_ticketlock_unlock(&pool->lock);
 			return _odp_pool_handle(pool);
 		}
-		UNLOCK(&pool->lock);
+		odp_ticketlock_unlock(&pool->lock);
 	}
 
 	return ODP_POOL_INVALID;
@@ -883,10 +872,10 @@ void odp_pool_print_all(void)
 	for (i = 0; i < CONFIG_POOLS; i++) {
 		pool_t *pool = _odp_pool_entry_from_idx(i);
 
-		LOCK(&pool->lock);
+		odp_ticketlock_lock(&pool->lock);
 
 		if (pool->rte_mempool == NULL) {
-			UNLOCK(&pool->lock);
+			odp_ticketlock_unlock(&pool->lock);
 			continue;
 		}
 
@@ -899,7 +888,7 @@ void odp_pool_print_all(void)
 		type       = pool->type;
 		elt_size   = pool->rte_mempool->elt_size;
 
-		UNLOCK(&pool->lock);
+		odp_ticketlock_unlock(&pool->lock);
 
 		if (type == ODP_POOL_BUFFER || type == ODP_POOL_PACKET)
 			elt_len = elt_size;
@@ -1228,9 +1217,9 @@ odp_pool_t odp_pool_ext_create(const char *name,
 
 		pool = _odp_pool_entry_from_idx(i);
 
-		LOCK(&pool->lock);
+		odp_ticketlock_lock(&pool->lock);
 		if (pool->rte_mempool != NULL) {
-			UNLOCK(&pool->lock);
+			odp_ticketlock_unlock(&pool->lock);
 			continue;
 		}
 
@@ -1308,7 +1297,7 @@ odp_pool_t odp_pool_ext_create(const char *name,
 			 mp->header_size, mp->elt_size, mp->trailer_size,
 			 (unsigned long)((mp->header_size + mp->elt_size +
 					  mp->trailer_size) * num));
-		UNLOCK(&pool->lock);
+		odp_ticketlock_unlock(&pool->lock);
 		pool_hdl = _odp_pool_handle(pool);
 		break;
 	}
@@ -1316,7 +1305,7 @@ odp_pool_t odp_pool_ext_create(const char *name,
 	return pool_hdl;
 
 error:
-	UNLOCK(&pool->lock);
+	odp_ticketlock_unlock(&pool->lock);
 	return ODP_POOL_INVALID;
 }
 
