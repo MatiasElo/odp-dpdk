@@ -133,7 +133,7 @@ jobs:
       - uses: actions/checkout@v4
       # Ignore distcheck failure (caused by the first 'make check' run unmounting huge pages)
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${{matrix.cc}}"
-               -e CONF="${{matrix.conf}}" $CONTAINER_NAMESPACE/odp-ci-${OS}-${ARCH}-graviton3 /odp/scripts/ci/distcheck.sh
+               -e CONF="${{matrix.conf}}" $CONTAINER_NAMESPACE/odp-ci-${OS}-${ARCH}-graviton3 /odp/scripts/ci/distcheck.sh || true
       - if: ${{ failure() }}
         uses: ./.github/actions/run-failure-log
 
