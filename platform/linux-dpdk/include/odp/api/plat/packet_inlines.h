@@ -12,10 +12,6 @@
 #ifndef _ODP_PLAT_PACKET_INLINES_H_
 #define _ODP_PLAT_PACKET_INLINES_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <odp/api/event.h>
 #include <odp/api/hints.h>
 #include <odp/api/packet_types.h>
@@ -46,6 +42,10 @@ extern "C" {
 #endif
 #if defined(__PPC64__) && defined(vector)
 	#undef vector
+#endif
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 /** @cond _ODP_HIDE_FROM_DOXYGEN_ */

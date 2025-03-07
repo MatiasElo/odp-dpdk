@@ -25,6 +25,10 @@
 	#undef vector
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** @cond _ODP_HIDE_FROM_DOXYGEN_ */
 
 #ifndef _ODP_NO_INLINE
@@ -150,5 +154,9 @@ _ODP_INLINE int odp_buffer_is_valid(odp_buffer_t buf)
 }
 
 /** @endcond */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

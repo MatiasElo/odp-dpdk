@@ -24,6 +24,10 @@
 	#undef vector
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _ODP_NO_INLINE
 	/* Inline functions by default */
 	#define _ODP_INLINE static inline
@@ -48,6 +52,10 @@ _ODP_INLINE int odp_memcmp(const void *ptr1, const void *ptr2, size_t num)
 {
 	return memcmp(ptr1, ptr2, num);
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 /** @endcond */
 
