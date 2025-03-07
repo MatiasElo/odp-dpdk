@@ -10,6 +10,10 @@
 
 #include <odp/api/abi/spinlock.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** @cond _ODP_HIDE_FROM_DOXYGEN_ */
 
 #ifndef _ODP_NO_INLINE
@@ -59,5 +63,9 @@ _ODP_INLINE int odp_spinlock_is_locked(odp_spinlock_t *spinlock)
 }
 
 /** @endcond */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -14,6 +14,10 @@
 
 /** @cond _ODP_HIDE_FROM_DOXYGEN_ */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _ODP_NO_INLINE
 	/* Inline functions by default */
 	#define _ODP_INLINE static inline
@@ -52,5 +56,9 @@ _ODP_INLINE int odp_ipsec_result(odp_ipsec_packet_result_t *result, odp_packet_t
 }
 
 /** @endcond */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
