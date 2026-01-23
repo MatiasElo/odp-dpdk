@@ -105,8 +105,6 @@ typedef struct ODP_ALIGNED_CACHE {
 	uint16_t mtu;
 	/* Maximum supported MTU value */
 	uint32_t mtu_max;
-	/* DPDK MTU has been modified */
-	uint8_t mtu_set;
 	/* Number of RX descriptors per queue */
 	uint16_t num_rx_desc[ODP_PKTIN_MAX_QUEUES];
 	/* Number of TX descriptors per queue */
@@ -255,9 +253,8 @@ static int dpdk_maxlen_set(pktio_entry_t *pktio_entry, uint32_t maxlen_input,
 	ret = rte_eth_dev_set_mtu(pkt_dpdk->port_id, mtu);
 	if (odp_unlikely(ret))
 		_ODP_ERR("rte_eth_dev_set_mtu() failed: %d\n", ret);
-
-	pkt_dpdk->mtu = maxlen_input;
-	pkt_dpdk->mtu_set = 1;
+	else
+		pkt_dpdk->mtu = maxlen_input;
 
 	return ret;
 }
@@ -279,6 +276,7 @@ static int dpdk_setup_eth_dev(pktio_entry_t *pktio_entry, const struct rte_eth_d
 {
 	int ret;
 	pkt_dpdk_t *pkt_dpdk = pkt_priv(pktio_entry);
+	odp_pktio_capability_t *capa = &pktio_entry->capa;
 	struct rte_eth_conf eth_conf;
 	pool_t *pool = _odp_pool_entry(pktio_entry->pool);
 	uint64_t rx_offloads = 0;
@@ -288,6 +286,8 @@ static int dpdk_setup_eth_dev(pktio_entry_t *pktio_entry, const struct rte_eth_d
 
 	eth_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_RSS;
 	eth_conf.txmode.mq_mode = RTE_ETH_MQ_TX_NONE;
+	if (capa->set_op.op.maxlen)
+		eth_conf.rxmode.mtu = pkt_dpdk->mtu - _ODP_ETHHDR_LEN;
 	eth_conf.rx_adv_conf.rss_conf = pkt_dpdk->rss_conf;
 
 	/* Setup RX checksum offloads */
@@ -577,18 +577,16 @@ static int dpdk_init_capability(pktio_entry_t *pktio_entry,
 
 	/* Check if setting MTU is supported */
 	ret = rte_eth_dev_set_mtu(pkt_dpdk->port_id, pkt_dpdk->mtu - _ODP_ETHHDR_LEN);
-	/* From DPDK 21.11 onwards, calling rte_eth_dev_set_mtu() before device is configured with
-	 * rte_eth_dev_configure() will result in failure. The least hacky (unfortunately still
-	 * very hacky) way to continue checking the support is to take into account that the
-	 * function will fail earlier with -ENOTSUP if MTU setting is not supported by device than
-	 * if the device was not yet configured. */
-	if (ret != -ENOTSUP) {
+	if (ret == 0) {
 		capa->set_op.op.maxlen = 1;
 		capa->maxlen.equal = true;
 		capa->maxlen.min_input = DPDK_MTU_MIN;
 		capa->maxlen.max_input = pkt_dpdk->mtu_max;
 		capa->maxlen.min_output = DPDK_MTU_MIN;
 		capa->maxlen.max_output = pkt_dpdk->mtu_max;
+	} else if (ret != -ENOTSUP) {
+		_ODP_ERR("Failed to probe MTU capability: %d\n", ret);
+		return -1;
 	}
 
 	ptype_cnt = rte_eth_dev_get_supported_ptypes(pkt_dpdk->port_id,
@@ -681,6 +679,7 @@ static int setup_pkt_dpdk(odp_pktio_t pktio ODP_UNUSED,
 	pkt_dpdk_t * const pkt_dpdk = pkt_priv(pktio_entry);
 	int i, ret;
 	uint16_t port_id;
+	struct rte_eth_conf eth_conf;
 
 	if (!rte_eth_dev_get_port_by_name(netdev, &port_id))
 		pkt_dpdk->port_id = port_id;
@@ -700,6 +699,16 @@ static int setup_pkt_dpdk(odp_pktio_t pktio ODP_UNUSED,
 	ret = rte_eth_dev_info_get(pkt_dpdk->port_id, &dev_info);
 	if (ret) {
 		_ODP_ERR("Failed to read device info: %d\n", ret);
+		return -1;
+	}
+
+	memset(&eth_conf, 0, sizeof(eth_conf));
+	ret = rte_eth_dev_configure(pkt_dpdk->port_id,
+				    _ODP_MIN(1, dev_info.max_rx_queues),
+				    _ODP_MIN(1, dev_info.max_tx_queues),
+				    &eth_conf);
+	if (ret) {
+		_ODP_ERR("Failed to configure device %s: err=%d\n", netdev, ret);
 		return -1;
 	}
 
@@ -728,7 +737,6 @@ static int setup_pkt_dpdk(odp_pktio_t pktio ODP_UNUSED,
 	}
 	pkt_dpdk->mtu = mtu + _ODP_ETHHDR_LEN;
 	pkt_dpdk->mtu_max = RTE_MAX(pkt_dpdk->mtu, DPDK_MTU_MAX);
-	pkt_dpdk->mtu_set = 0;
 
 	if (dpdk_init_capability(pktio_entry, &dev_info)) {
 		_ODP_ERR("Failed to initialize capability\n");
@@ -874,16 +882,6 @@ static int dpdk_start(pktio_entry_t *pktio_entry)
 	/* Setup RX queues */
 	if (dpdk_setup_eth_rx(pktio_entry, pkt_dpdk, &dev_info))
 		return -1;
-
-	/* Restore MTU value resetted by dpdk_setup_eth_rx() */
-	if (pkt_dpdk->mtu_set && pktio_entry->capa.set_op.op.maxlen) {
-		ret = dpdk_maxlen_set(pktio_entry, pkt_dpdk->mtu, 0);
-		if (ret) {
-			_ODP_ERR("Restoring device MTU failed: err=%d, port=%" PRIu8 "\n",
-				 ret, port_id);
-			return -1;
-		}
-	}
 
 	/* Use simpler function when packet parsing and classifying are not required */
 	if (pktio_entry->parse_layer == ODP_PROTO_LAYER_NONE)
