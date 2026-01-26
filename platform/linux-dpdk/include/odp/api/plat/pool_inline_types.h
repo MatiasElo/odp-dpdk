@@ -24,6 +24,8 @@ typedef struct _odp_pool_inline_offset_t {
 	uint16_t seg_len;
 	uint16_t uarea_size;
 	uint16_t ext_head_offset;
+	uint16_t mempool;
+	uint16_t type;
 
 } _odp_pool_inline_offset_t;
 

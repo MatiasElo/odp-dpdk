@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause
- * Copyright (c) 2019-2025 Nokia
+ * Copyright (c) 2019-2026 Nokia
  */
 
 #ifndef ODP_PLAT_BUFFER_INLINES_H_
@@ -14,6 +14,7 @@
 #include <odp/api/plat/debug_inlines.h>
 #include <odp/api/plat/event_inline_types.h>
 #include <odp/api/plat/event_validation_external.h>
+#include <odp/api/plat/pool_inline_types.h>
 
 #include <rte_mbuf.h>
 #include <rte_mempool.h>
@@ -43,6 +44,8 @@ extern "C" {
 	#define odp_buffer_size __odp_buffer_size
 	#define odp_buffer_pool __odp_buffer_pool
 	#define odp_buffer_user_area __odp_buffer_user_area
+	#define odp_buffer_alloc __odp_buffer_alloc
+	#define odp_buffer_alloc_multi __odp_buffer_alloc_multi
 	#define odp_buffer_free __odp_buffer_free
 	#define odp_buffer_free_multi __odp_buffer_free_multi
 	#define odp_buffer_is_valid __odp_buffer_is_valid
@@ -92,6 +95,45 @@ _ODP_INLINE odp_pool_t odp_buffer_pool(odp_buffer_t buf)
 _ODP_INLINE void *odp_buffer_user_area(odp_buffer_t buf)
 {
 	return _odp_buffer_get(buf, void *, uarea_addr);
+}
+
+_ODP_INLINE odp_buffer_t odp_buffer_alloc(odp_pool_t pool)
+{
+	struct rte_mbuf *mbuf;
+	struct rte_mempool *mp;
+
+	_ODP_ASSERT(pool != ODP_POOL_INVALID);
+	_ODP_ASSERT(_odp_pool_get(pool, odp_pool_type_t, type) == ODP_POOL_BUFFER);
+
+	mp = _odp_pool_get(pool, struct rte_mempool *, mempool);
+	if (odp_unlikely(rte_mempool_get(mp, (void **)&mbuf) != 0))
+		return ODP_BUFFER_INVALID;
+
+	return (odp_buffer_t)(uintptr_t)mbuf;
+}
+
+_ODP_INLINE int odp_buffer_alloc_multi(odp_pool_t pool, odp_buffer_t buf[], int num)
+{
+	struct rte_mempool *mp;
+	int i;
+
+	_ODP_ASSERT(pool != ODP_POOL_INVALID);
+	_ODP_ASSERT(_odp_pool_get(pool, odp_pool_type_t, type) == ODP_POOL_BUFFER);
+
+	mp = _odp_pool_get(pool, struct rte_mempool *, mempool);
+	if (odp_likely(rte_mempool_get_bulk(mp, (void **)buf, (unsigned int)num) == 0))
+		return num;
+
+	for (i = 0; i < num; i++) {
+		struct rte_mbuf *mbuf;
+
+		if (odp_unlikely(rte_mempool_get(mp, (void **)&mbuf) != 0))
+			return i;
+
+		buf[i] = (odp_buffer_t)(uintptr_t)mbuf;
+	}
+
+	return i;
 }
 
 _ODP_INLINE void odp_buffer_free(odp_buffer_t buf)
