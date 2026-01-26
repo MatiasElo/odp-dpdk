@@ -69,7 +69,9 @@ const _odp_pool_inline_offset_t _odp_pool_inline ODP_ALIGNED_CACHE = {
 	.index             = offsetof(pool_t, pool_idx),
 	.seg_len           = offsetof(pool_t, seg_len),
 	.uarea_size        = offsetof(pool_t, param_uarea_size),
-	.ext_head_offset   = offsetof(pool_t, ext_head_offset)
+	.ext_head_offset   = offsetof(pool_t, ext_head_offset),
+	.mempool           = offsetof(pool_t, rte_mempool),
+	.type              = offsetof(pool_t, type_2),
 };
 
 #include <odp/visibility_end.h>
@@ -867,37 +869,6 @@ odp_pool_t odp_pool_lookup(const char *name)
 	}
 
 	return ODP_POOL_INVALID;
-}
-
-odp_buffer_t odp_buffer_alloc(odp_pool_t pool_hdl)
-{
-	odp_event_t event;
-	pool_t *pool;
-
-	_ODP_ASSERT(ODP_POOL_INVALID != pool_hdl);
-
-	pool = _odp_pool_entry(pool_hdl);
-
-	_ODP_ASSERT(pool->type == ODP_POOL_BUFFER);
-
-	event = _odp_event_alloc(pool);
-	if (odp_likely(event != ODP_EVENT_INVALID))
-		return odp_buffer_from_event(event);
-
-	return ODP_BUFFER_INVALID;
-}
-
-int odp_buffer_alloc_multi(odp_pool_t pool_hdl, odp_buffer_t buf[], int num)
-{
-	pool_t *pool;
-
-	_ODP_ASSERT(ODP_POOL_INVALID != pool_hdl);
-
-	pool = _odp_pool_entry(pool_hdl);
-
-	_ODP_ASSERT(pool->type == ODP_POOL_BUFFER);
-
-	return _odp_event_alloc_multi(pool, (_odp_event_hdr_t **)buf, num);
 }
 
 static const char *get_short_type_str(odp_pool_type_t type)
