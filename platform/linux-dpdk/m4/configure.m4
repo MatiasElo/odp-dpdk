@@ -16,6 +16,7 @@ m4_include([platform/linux-dpdk/m4/odp_libconfig.m4])
 m4_include([platform/linux-dpdk/m4/odp_openssl.m4])
 m4_include([platform/linux-dpdk/m4/odp_pcapng.m4])
 m4_include([platform/linux-dpdk/m4/odp_scheduler.m4])
+m4_include([platform/linux-dpdk/m4/odp_time.m4])
 m4_include([platform/linux-dpdk/m4/odp_wfe.m4])
 m4_include([platform/linux-dpdk/m4/odp_ml.m4])
 
@@ -73,6 +74,7 @@ AS_VAR_APPEND([PLAT_CFG_TEXT], ["
 	openssl_rand:           ${openssl_rand}
 	pcap:                   ${have_pmd_pcap}
 	pcapng:                 ${have_pcapng}
+	time_freq_1ghz:         ${time_freq_1ghz}
 	wfe_locks:              ${use_wfe_locks}
 	ml_support:             ${ml_support}
 	default_config_path:    ${default_config_path}"])

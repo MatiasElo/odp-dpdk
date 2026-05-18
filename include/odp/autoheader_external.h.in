@@ -17,4 +17,7 @@
 /* Define to 1 to enable WFE based lock implementation on aarch64 */
 #undef _ODP_WFE_LOCKS
 
+/* Define to 1 to assume 1 GHz time counter frequency */
+#undef _ODP_TIME_FREQ_1GHZ
+
 #endif
