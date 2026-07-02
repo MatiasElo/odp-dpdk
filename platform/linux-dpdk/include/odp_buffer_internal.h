@@ -21,6 +21,7 @@ extern "C" {
 #include <odp/api/byteorder.h>
 #include <odp/api/debug.h>
 #include <odp/api/event.h>
+#include <odp/api/hints.h>
 #include <odp/api/pool.h>
 #include <odp/api/std_types.h>
 #include <odp/api/thread.h>
@@ -84,6 +85,9 @@ static inline uint32_t _odp_buffer_index(odp_buffer_t buf)
 
 static inline void _odp_buffer_free_sp(const odp_buffer_t buf[], int num)
 {
+	if (odp_unlikely(num < 1))
+		return;
+
 	_odp_event_free_sp((_odp_event_hdr_t **)(uintptr_t)buf, num);
 }
 

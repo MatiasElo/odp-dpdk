@@ -14,6 +14,7 @@
 
 #include <odp/api/align.h>
 #include <odp/api/debug.h>
+#include <odp/api/hints.h>
 #include <odp/api/timer.h>
 
 #include <odp_event_internal.h>
@@ -73,6 +74,9 @@ static inline uint64_t timer_run(int dec)
 
 static inline void _odp_timeout_free_sp(odp_timeout_t tmo[], int num)
 {
+	if (odp_unlikely(num < 1))
+		return;
+
 	_odp_event_free_sp((_odp_event_hdr_t **)(uintptr_t)tmo, num);
 }
 
