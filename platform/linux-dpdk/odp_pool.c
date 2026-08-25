@@ -51,6 +51,14 @@
 #define BUFFER_ALIGN_DEFAULT ODP_CACHE_LINE_SIZE
 ODP_STATIC_ASSERT(_ODP_CHECK_IS_POWER2(BUFFER_ALIGN_DEFAULT), "Buffer align must be power of two");
 
+/* Packet data starts at mbuf base + sizeof(odp_packet_hdr_t) + RTE_PKTMBUF_HEADROOM. DPDK mempool
+ * objects are cache line aligned, so packet data is cache line aligned when both terms of the
+ * offset are cache line multiples. odp_pool_capability() reports this as pkt.max_align. */
+ODP_STATIC_ASSERT(sizeof(odp_packet_hdr_t) % ODP_CACHE_LINE_SIZE == 0,
+		  "Packet header size must be divisible by ODP_CACHE_LINE_SIZE");
+ODP_STATIC_ASSERT(RTE_PKTMBUF_HEADROOM % ODP_CACHE_LINE_SIZE == 0,
+		  "RTE_PKTMBUF_HEADROOM must be divisible by ODP_CACHE_LINE_SIZE");
+
 /* Maximum packet user area size */
 #define MAX_UAREA_SIZE 2048
 
@@ -270,7 +278,7 @@ int odp_pool_capability(odp_pool_capability_t *capa)
 	capa->buf.stats.all = supported_stats.all;
 
 	/* Packet pools */
-	capa->pkt.max_align        = CONFIG_BUFFER_ALIGN_MIN;
+	capa->pkt.max_align        = ODP_CACHE_LINE_SIZE;
 	capa->pkt.max_pools        = max_pools;
 	capa->pkt.max_len          = CONFIG_PACKET_MAX_SEG_LEN - _ODP_EV_ENDMARK_SIZE;
 	capa->pkt.max_num          = _odp_pool_glb->config.pkt_max_num;
