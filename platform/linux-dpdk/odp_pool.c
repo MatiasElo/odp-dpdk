@@ -1439,6 +1439,7 @@ odp_pool_t odp_pool_ext_create(const char *name,
 		pool->pool_ext = 1;
 		pool->seg_len = blk_size - pool->trailer_size;
 		pool->type = params->type;
+		pool->type_2 = params->type;
 		strcpy(pool->name, pool_name);
 
 		if (reserve_uarea(pool, params->pkt.uarea_size, num)) {
