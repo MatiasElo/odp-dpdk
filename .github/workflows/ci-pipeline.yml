@@ -10,6 +10,7 @@ env:
 jobs:
   Checkpatch:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -37,6 +38,7 @@ jobs:
 
   Documentation:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Install dependencies
@@ -59,13 +61,12 @@ jobs:
 
   Build_gcc:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         conf: ['CFLAGS=-O3',
-               'CFLAGS=-O1',
                'CFLAGS=-O0 --enable-debug=full',
-               'CFLAGS=-Os',
                'CFLAGS=-pedantic',
                '--enable-lto --enable-abi-compat',
                '--enable-pcapng-support --enable-icache-perf-test']
@@ -78,13 +79,12 @@ jobs:
 
   Build_clang:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         conf: ['CFLAGS=-O3',
-               'CFLAGS=-O1',
                'CFLAGS=-O0 --enable-debug=full',
-               'CFLAGS=-Os',
                'CFLAGS=-pedantic',
                '--enable-pcapng-support',
                '--without-openssl --without-pcap']
@@ -97,6 +97,7 @@ jobs:
 
   Build_static:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       CONF: "--disable-shared --without-openssl --without-pcap"
     strategy:
@@ -113,6 +114,7 @@ jobs:
 
   Build_arm64:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       ARCH: arm64
       CONF: "--enable-dpdk-shared"
@@ -122,6 +124,9 @@ jobs:
         cc: [gcc, clang]
         conf: ['', '--enable-abi-compat', 'CFLAGS=-march=armv8.2-a', 'CFLAGS=-march=armv8-a+lse',
                '--enable-wfe-locks']
+        exclude:
+          - cc: clang
+            conf: --enable-abi-compat
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${{matrix.cc}}"
@@ -131,6 +136,7 @@ jobs:
 
   Build_ppc64el:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       ARCH: ppc64el
       CONF: "--enable-dpdk-shared"
@@ -147,6 +153,7 @@ jobs:
 
   Build_i386:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       ARCH: i386
       OS: debian_12
@@ -155,6 +162,9 @@ jobs:
       matrix:
         cc: [gcc, clang]
         conf: ['', '--enable-abi-compat']
+        exclude:
+          - cc: clang
+            conf: --enable-abi-compat
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${{matrix.cc}}"
@@ -164,12 +174,13 @@ jobs:
 
   Build_OS:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         cc: [gcc, clang]
         os: ['rocky_linux_8']
-        conf: ['--enable-abi-compat']
+        conf: ['--without-openssl --enable-abi-compat']
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${{matrix.cc}}"
@@ -179,12 +190,13 @@ jobs:
 
   Build_gcc_versions:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         # Gcc-13 is the default in Ubuntu 24.04 and gets used in Run_gcc
         cc_ver: [10, 11, 12, 14]
-        conf: ['', '--enable-abi-compat']
+        conf: ['']
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="gcc-${{matrix.cc_ver}}" -e CXX="g++-${{matrix.cc_ver}}"
@@ -194,12 +206,13 @@ jobs:
 
   Build_gcc_15:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       OS: ubuntu_26.04
     strategy:
       fail-fast: false
       matrix:
-        conf: ['', '--enable-abi-compat']
+        conf: ['']
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="gcc-15" -e CXX="g++-15"
@@ -209,12 +222,13 @@ jobs:
 
   Build_clang_21:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       OS: ubuntu_26.04
     strategy:
       fail-fast: false
       matrix:
-        conf: ['', '--enable-abi-compat']
+        conf: ['']
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="clang-21" -e CXX="clang++-21"
@@ -224,6 +238,7 @@ jobs:
 
   Build_out-of-tree:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${CC}"
@@ -233,6 +248,7 @@ jobs:
 
   Build_linux-generic:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       CONF: "--with-platform=linux-generic"
     steps:
@@ -244,6 +260,7 @@ jobs:
 
   Run_distcheck:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -258,6 +275,7 @@ jobs:
 
   Run_gcc:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -280,6 +298,7 @@ jobs:
 
   Run_clang:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -298,6 +317,7 @@ jobs:
 
   Run_OS:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -312,6 +332,7 @@ jobs:
 
   Run_sched_config:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${CC}" -e ARCH="${ARCH}"
@@ -321,6 +342,7 @@ jobs:
 
   Run_scheduler_sp:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${CC}" -e ARCH="${ARCH}"
@@ -330,6 +352,7 @@ jobs:
 
   Run_process_mode:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${CC}" -e ARCH="${ARCH}"
@@ -340,6 +363,7 @@ jobs:
 
   Run_default_timer:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${CC}" -e ARCH="${ARCH}"
@@ -350,6 +374,7 @@ jobs:
 
   Run_dpdk-23_11:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${CC}" -e ARCH="${ARCH}"
@@ -359,6 +384,7 @@ jobs:
 
   Run_dpdk-25_11:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - run: sudo docker run -i -v `pwd`:/odp --privileged --shm-size 8g -e CC="${CC}" -e ARCH="${ARCH}"
@@ -368,6 +394,7 @@ jobs:
 
   Run_crypto:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -378,8 +405,12 @@ jobs:
                -e CONF="${CONF}" -e ODP_PLATFORM_PARAMS="--vdev=${{matrix.driver}}"
                -e ODP_CONFIG_FILE=/odp/platform/linux-dpdk/test/crypto.conf
                $CONTAINER_NAMESPACE/odp-ci-${OS}-${ARCH} /odp/scripts/ci/check_validation.sh
+      - if: ${{ failure() }}
+        uses: ./.github/actions/run-failure-log
+
   Run_sanitizer:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

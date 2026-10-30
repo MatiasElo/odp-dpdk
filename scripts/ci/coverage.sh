@@ -13,7 +13,7 @@ cd "$(dirname "$0")"/../..
 ./bootstrap
 ./configure \
 	CFLAGS="-O0 -coverage $CFLAGS" CXXFLAGS="-O0 -coverage $CXXFLAGS" LDFLAGS="--coverage $LDFLAGS" \
-	--enable-debug=full --enable-helper-linux
+	--enable-debug=full
 export CCACHE_DISABLE=1
 make -j $(nproc)
 

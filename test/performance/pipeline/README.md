@@ -49,8 +49,50 @@ existing yet but might in the future. More details in the next section.
 
 A few examples showcasing how one could configure the pipeline:
 
-[pipeline_example1](pipeline_example1)
-[pipeline_example2](pipeline_example2)
+[pipeline_example1.conf](pipeline_example1.conf)
+[pipeline_example2.conf](pipeline_example2.conf)
+
+### Config parser API
+
+Every domain is handled by a parser of its own which registers itself with the
+`CONFIG_PARSER_AUTOREGISTER()` macro from `config_parser.h`. The macro takes a priority, the domain
+name as it appears in the configuration file and the five functions described below.
+
+The priority is a constructor priority, given as one of `CRIT_PRIO`, `HIGH_PRIO`, `MED_PRIO` or
+`LOW_PRIO` from `common.h`, and it sets the order in which the parsers are evaluated, `CRIT_PRIO`
+parsers running first and `LOW_PRIO` parsers last. A parser has to be registered with a priority
+which runs it after the parsers providing the resources it depends on, e.g. queues and pools are
+parsed with `HIGH_PRIO` while flows, which reference both, are parsed with `LOW_PRIO`.
+
+- `init` function
+  - type: `odp_bool_t (*)(config_t *config)`
+  - info: looks up the domain from the passed configuration and parses its entries into parser
+          internal state, without creating any ODP resources yet. Run in registration order. An
+          absent domain is not an error as all domains are optional, a malformed one is
+- `deploy` function
+  - type: `odp_bool_t (*)(void)`
+  - info: creates the ODP resources described by the parsed entries. Run in registration order after
+          every `init` function has succeeded, so resources of the earlier domains can be queried
+          with `odp_pl_config_parser_get()`
+- `undeploy` function
+  - type: `void (*)(void)`
+  - info: optional, may be `NULL`. Run in reverse registration order once termination has been
+          requested but workers are still running. Meant for stopping resources which generate
+          events, e.g. the packet I/O domain stops its packet I/Os here
+- `destroy` function
+  - type: `void (*)(void)`
+  - info: frees the parser internal state and destroys the created ODP resources. Run in reverse
+          registration order at exit, also when `init` or `deploy` of any domain failed, so it has
+          to tolerate partially initialized state
+- `resource` function
+  - type: `uintptr_t (*)(const char *resource)`
+  - info: maps a resource name of the domain to the created resource handle, cast to `uintptr_t`.
+          Called through `odp_pl_config_parser_get()`
+
+Configuration errors are reported by returning `false` from `init` or `deploy`, which tears down the
+already deployed domains and exits with an error. Errors which cannot be recovered from, such as
+memory allocation failures and name lookups which cannot be satisfied, abort immediately with
+`ODPH_ABORT()`.
 
 ## Domains
 
@@ -200,11 +242,9 @@ A few examples showcasing how one could configure the pipeline:
   - element: `cipher_alg`
     - necessity: optional
     - type: string
-    - values: `"null"`, `"des"`, `"3des_cbc"`, `"3des_ecb"`, `"aes_cbc"`, `"aes_ctr"`, `"aes_ecb"`,
-              `"aes_cfb128"`, `"aes_xts"`, `"aes_gcm"`, `"aes_ccm"`, `"chacha20_poly1305"`,
-              `"kasumi_f8"`, `"snow3g_uae2"`, `"aes_eea2"`, `"zuc_eea3"`, `"snow_v"`,
-              `"snow_v_gcm"`, `"sm4_ecb"`, `"sm4_cbc"`, `"sm4_ctr"`, `"sm4_gcm"`, `"sm4_ccm"`,
-              mapping to `odp_cipher_alg_t`
+    - values: `odp_cipher_alg_t` enumeration name in lower case and without the
+              `ODP_CIPHER_ALG_` prefix (see `odph_cipher_alg_from_str()`), e.g. `"null"`,
+              `"aes_cbc"`, `"aes_gcm"`
     - default: `odp_crypto_session_param_init()`
   - element: `cipher_key_data`
     - necessity: required if `cipher_alg` != `"null"`
@@ -219,12 +259,9 @@ A few examples showcasing how one could configure the pipeline:
   - element: `auth_alg`
     - necessity: optional
     - type: string
-    - values: `"null"`, `"md5_hmac"`, `"sha1_hmac"`, `"sha224_hmac"`, `"sha256_hmac"`,
-              `"sha384_hmac"`, `"sha512_hmac"`, `"sha3_224_hmac"`, `"sha3_256_hmac"`,
-              `"sha3_384_hmac"`, `"sha3_512_hmac"`, `"aes_gmac"`, `"aes_cmac"`, `"aed_xcbc_mac"`,
-              `"kasumi_f9"`, `"snow3g_uia2"`, `"aes_eia2"`, `"zuc_eia3"`, `"snow_v_gmac"`,
-              `"sm3_hmac"`, `"sm4_gmac"`, `"md5"`, `"sha1"`, `"sha224"`, `"sha3_256"`,
-              `"sha3_384"`, `"sha3_512"`, `"sm3"`, mapping to `odp_auth_alg_t`
+    - values: `odp_auth_alg_t` enumeration name in lower case and without the
+              `ODP_AUTH_ALG_` prefix (see `odph_auth_alg_from_str()`), e.g. `"null"`,
+              `"sha256_hmac"`, `"aes_gcm"`
   - element: `auth_key_data`
     - necessity: required if `auth_alg` != `"null"`
     - type: byte value array
@@ -256,6 +293,15 @@ A few examples showcasing how one could configure the pipeline:
   - element: `name`
     - necessity: required
     - type: string, max `ODP_DMA_NAME_LEN`
+  - element: `compl_mode_mask`
+    - necessity: optional
+    - type: string, hexadecimal `odp_dma_compl_mode_t` mask
+    - default: `ODP_DMA_COMPL_EVENT`
+  - element: `order`
+    - necessity: optional
+    - type: string
+    - values: `"none"`, `"compl"`, `"all"`, mapping to `odp_dma_transfer_order_t`
+    - default: `odp_dma_param_init()`
 
 ### Flows
 
@@ -595,6 +641,49 @@ queue is marked as "output" flow, where again a set of events is passed to flow 
 instead of consuming the events, they are produced to the passed event set. Output flows are
 executed once per poll/scheduling round and after input flows have been handled.
 
+Work elements can assume that they are operating in a properly initialized ODP instance and must
+not initialize or create ODP instances themselves. Additionally, work elements must only use the
+explicitly configured ODP resources (configured via the configuration file) and must not create ODP
+resources themselves.
+
+### Work API
+
+Work registers itself with the `ODP_PL_WORK_AUTOREGISTER()` macro from the public
+`odp_pipeline_work.h` header. The macro takes the name with which the work is referenced from the
+`type` element of a flow `work` entry and the `init`, `print` and `destroy` functions described
+below, the actual work function being set as part of the `init` context. A registration overrides
+an earlier registration of the same name.
+
+- `init` function
+  - type: `void (*)(const odp_pl_work_param_t *param, odp_pl_work_init_t *init)`
+  - info: run once for every flow `work` entry referencing the work, during flow deployment. Stores
+          the work function to `init->fn` and, optionally, a context value to `init->data`. As
+          there is no return value, configuration errors are reported by aborting with
+          `ODPH_ABORT()`
+  - `param` elements:
+    - `queue`: name of the queue the flow is attached to
+    - `type`: registered name of the work
+    - `param`: configured parameter list, `NULL` if none was given
+- work function
+  - type: `int (*)(uintptr_t data, odp_event_t ev[], int num, odp_pl_work_stats_t *stats)`
+  - info: run for every burst of events the flow handles, with `data` set to the context stored
+          during init. For input flows, the work consumes events from the beginning of `ev` and
+          returns the number of events consumed, the next work of the chain then receiving the
+          remaining events. For output flows, the work writes up to `num` events to `ev` and
+          returns the number of events produced. Statistics can be accumulated to the four
+          free-form counters of `stats`
+- `print` function
+  - type: `void (*)(const char *queue, const odp_pl_work_stats_t *stats)`
+  - info: run once per work instance during teardown for printing the accumulated `stats`. `queue`
+          is the name of the queue the flow is attached to
+- `destroy` function
+  - type: `void (*)(uintptr_t data)`
+  - info: run once per work instance after `print` for releasing the context
+
+The context is an arbitrary `uintptr_t` value, so work needing more than a single handle can
+allocate a context structure in the init function, pass its address as the context and release it
+in the destroy function.
+
 ### Forward
 
 - name in configuration file: `work_forward`
@@ -660,3 +749,42 @@ executed once per poll/scheduling round and after input flows have been handled.
 - info: waits a given amount, no events consumed
 - parameter list:
   - index 0: time to wait in nanoseconds
+
+### External work libraries
+
+In addition to the baseline work compiled into the tester, work can be provided at runtime through
+shared libraries loaded with the `-l`, `--lib` command line option (the option may be repeated to
+load several libraries). Such a library is built against the installed, pkg-config discoverable
+`libodp_pipeline` package and registers its work with the `ODP_PL_WORK_AUTOREGISTER()` macro from the
+public `odp_pipeline_work.h` header. Work registered from a loaded library overrides baseline work
+or work from a previously loaded library (order matters) of the same name, allowing work behavior
+to be replaced.
+
+Libraries can query resources parsed from the configuration file, such as queues or pools, with the
+`odp_pl_config_parser_get()` function from the public `odp_pipeline_config.h` header.
+
+Work can request the tester to stop with the `odp_pl_request_termination()` function from the public
+`odp_pipeline_orchestrator.h` header. The passed source and cause strings are printed and the
+pipeline is then torn down as if a termination signal had been received.
+
+#### Example library
+
+[work_example.c](work_example.c) is a minimal work library which forwards the events it receives to
+the queue named in its first work parameter. It is not built as part of the tester, but compiled
+into a loadable library with:
+
+```bash
+gcc -shared -fPIC $(pkg-config --cflags libodp_pipeline) work_example.c -o work_example.so
+```
+
+The ODP libraries are not linked in, as the tester exports the symbols the library needs and
+resolves them when loading the library. If ODP is installed to a non-default prefix, point
+`pkg-config` to it with exporting `PKG_CONFIG_PATH=<odp-install-prefix>/lib/pkgconfig`.
+
+[pipeline.conf](pipeline.conf) references the work by the name it registered, `example`, and
+configures a single worker which polls `queue1` and passes the received events to the work, which
+forwards them to `queue2`. The library is loaded at startup with:
+
+```bash
+odp_pipeline -f pipeline.conf -l ./work_example.so
+```

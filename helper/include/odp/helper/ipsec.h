@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2014-2018 Linaro Limited
- * Copyright (c) 2021 Nokia
+ * Copyright (c) 2021-2026 Nokia
  */
 
 
@@ -70,21 +70,68 @@ ODP_STATIC_ASSERT(sizeof(odph_ahhdr_t) == ODPH_AHHDR_LEN,
 /** @endcond */
 
 /**
- * Check IPSEC algorithm support
+ * Check IPsec cipher algorithm support
  *
- * Based on the capabilities exposed by the ODP implementation, check whether
- * the specified IPSEC algorithm configuration with the default ICV length
- * is supported by the implementation. The caller provides the IPSEC
- * capability structure as an argument to the helper function.
+ * Check whether the ODP implementation advertises support for the specified
+ * cipher algorithm with the given key length for IPsec.
  *
- * @param      capa            IPSEC capability structure
+ * @param      capa     Capabilities filled by odp_ipsec_capability()
+ * @param      cipher   Cipher algorithm
+ * @param      key_len  Length of cipher key in bytes
+ *
+ * @retval 0   the algorithm is supported with the key length
+ * @retval <0  the algorithm is not supported with the key length
+ */
+int odph_ipsec_cipher_capa_check(const odp_ipsec_capability_t *capa,
+				 odp_cipher_alg_t cipher,
+				 uint32_t key_len);
+
+/**
+ * Check IPsec authentication algorithm support
+ *
+ * Check whether the ODP implementation advertises support for the specified
+ * auth algorithm with the given key length and ICV length for IPsec. ICV
+ * length of zero means the explicit zero ICV length here, not the default.
+ *
+ * @param      capa     Capabilities filled by odp_ipsec_capability()
+ * @param      auth     Authentication algorithm
+ * @param      key_len  Length of auth key in bytes
+ * @param      icv_len  ICV length in bytes
+ *
+ * @retval 0   the algorithm is supported with the key and ICV lengths
+ * @retval <0  the algorithm is not supported with the key and ICV lengths
+ */
+int odph_ipsec_auth_capa_check(const odp_ipsec_capability_t *capa,
+			       odp_auth_alg_t auth,
+			       uint32_t key_len,
+			       uint32_t icv_len);
+
+/**
+ * Check IPsec algorithm support
+ *
+ * Check if the specified cipher with the specified key length is
+ * supported and if the specified auth algorithm with the specified
+ * key length and its default ICV length is supported.
+ *
+ * If the default ICV length is undefined or implementation specific,
+ * this function returns a negative value, indicating no support.
+ * Use odph_ipsec_cipher_capa_check() and odph_ipsec_auth_capa_check()
+ * to check support with a non-default ICV length.
+ *
+ * A zero return value indicates that the cipher configuration and
+ * the auth configuration are advertised as supported but does not
+ * guarantee that they can be used in the same IPsec SA. SA creation
+ * may fail in some implementations if the cipher and auth cannot
+ * be combined.
+ *
+ * @param      capa            Capabilities filled by odp_ipsec_capability()
  * @param      cipher_alg      Cipher algorithm
  * @param      cipher_key_len  Length of cipher key in bytes
  * @param      auth_alg        Authentication algorithm
  * @param      auth_key_len    Length of authentication key in bytes
  *
- * @retval 0  on success
- * @retval <0 on failure
+ * @retval 0   configuration is supported
+ * @retval <0  configuration is not supported
  */
 int odph_ipsec_alg_check(const odp_ipsec_capability_t *capa,
 			 odp_cipher_alg_t cipher_alg,
@@ -97,12 +144,15 @@ int odph_ipsec_alg_check(const odp_ipsec_capability_t *capa,
  *
  * IPsec API specifies default ICV length for each authentication and
  * combined mode algorithm. This function returns the default ICV length.
+ * If the default value is undefined or implementation specific, this
+ * function returns a negative value.
  *
  * @param      auth_alg   Authentication algorithm
  *
- * @return                The default ICV length in bytes
+ * @retval >=0            The default ICV length in bytes
+ * @retval <0             Default ICV length is not defined
  */
-uint32_t odph_ipsec_auth_icv_len_default(odp_auth_alg_t auth_alg);
+int odph_ipsec_auth_icv_len_default(odp_auth_alg_t auth_alg);
 
 /**
  * @}

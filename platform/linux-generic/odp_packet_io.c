@@ -7,6 +7,7 @@
 
 #include <odp/api/buffer.h>
 #include <odp/api/debug.h>
+#include <odp/api/deprecated.h>
 #include <odp/api/packet.h>
 #include <odp/api/packet_io.h>
 #include <odp/api/proto_stats.h>
@@ -126,7 +127,7 @@ int _odp_pktio_init_global(void)
 	pktio_entry_t *pktio_entry;
 	int i;
 	odp_shm_t shm;
-	int pktio_if;
+	int pktio_if = 0;
 
 	shm = odp_shm_reserve("_odp_pktio_global", sizeof(pktio_global_t),
 			      ODP_CACHE_LINE_SIZE, 0);
@@ -139,11 +140,8 @@ int _odp_pktio_init_global(void)
 
 	odp_spinlock_init(&pktio_global->lock);
 
-	if (read_config_file(pktio_global)) {
-		odp_shm_free(shm);
-		pktio_global = NULL;
-		return -1;
-	}
+	if (read_config_file(pktio_global))
+		goto err;
 
 	for (i = 0; i < CONFIG_PKTIO_ENTRIES; ++i) {
 		pktio_entry = &pktio_global->entries[i];
@@ -155,22 +153,33 @@ int _odp_pktio_init_global(void)
 		_odp_pktio_entry_ptr[i] = pktio_entry;
 	}
 
-	for (pktio_if = 0; _odp_pktio_if_ops[pktio_if]; ++pktio_if) {
+	for (; _odp_pktio_if_ops[pktio_if]; ++pktio_if) {
 		if (_odp_pktio_if_ops[pktio_if]->init_global)
 			if (_odp_pktio_if_ops[pktio_if]->init_global()) {
-				_ODP_ERR("failed to initialized pktio type %d", pktio_if);
-				return -1;
+				_ODP_ERR("failed to initialize pktio type %d\n", pktio_if);
+				goto err;
 			}
 	}
 
 	if (_ODP_PCAPNG) {
 		if (_odp_pcapng_init_global()) {
 			_ODP_ERR("Failed to initialize pcapng\n");
-			return -1;
+			goto err;
 		}
 	}
 
 	return 0;
+
+err:
+	for (i = 0; i < pktio_if; i++) {
+		int (*term)(void) = _odp_pktio_if_ops[i]->term;
+
+		if (term && term())
+			_ODP_ERR("failed to terminate pktio type %d\n", i);
+	}
+	odp_shm_free(shm);
+	pktio_global = NULL;
+	return -1;
 }
 
 int _odp_pktio_init_local(void)
@@ -180,7 +189,7 @@ int _odp_pktio_init_local(void)
 	for (pktio_if = 0; _odp_pktio_if_ops[pktio_if]; ++pktio_if) {
 		if (_odp_pktio_if_ops[pktio_if]->init_local)
 			if (_odp_pktio_if_ops[pktio_if]->init_local()) {
-				_ODP_ERR("failed to initialized pktio type %d", pktio_if);
+				_ODP_ERR("failed to initialize pktio type %d\n", pktio_if);
 				return -1;
 			}
 	}
@@ -801,16 +810,16 @@ static inline odp_packet_vector_t packet_vector_create(odp_packet_t packets[], u
 	odp_packet_t *pkt_tbl;
 	uint32_t i;
 
-	pktv = odp_packet_vector_alloc(pool);
+	pktv = ODP_DEPRECATE(odp_packet_vector_alloc)(pool);
 	if (odp_unlikely(pktv == ODP_PACKET_VECTOR_INVALID)) {
 		odp_packet_free_multi(packets, num);
 		return ODP_PACKET_VECTOR_INVALID;
 	}
 
-	odp_packet_vector_tbl(pktv, &pkt_tbl);
+	ODP_DEPRECATE(odp_packet_vector_tbl)(pktv, &pkt_tbl);
 	for (i = 0; i < num; i++)
 		pkt_tbl[i] = packets[i];
-	odp_packet_vector_size_set(pktv, num);
+	ODP_DEPRECATE(odp_packet_vector_size_set)(pktv, num);
 
 	return pktv;
 }
@@ -1511,7 +1520,7 @@ int _odp_pktio_term_global(void)
 	for (pktio_if = 0; _odp_pktio_if_ops[pktio_if]; ++pktio_if) {
 		if (_odp_pktio_if_ops[pktio_if]->term)
 			if (_odp_pktio_if_ops[pktio_if]->term())
-				_ODP_ABORT("failed to terminate pktio type %d", pktio_if);
+				_ODP_ABORT("failed to terminate pktio type %d\n", pktio_if);
 	}
 
 	if (_ODP_PCAPNG) {
@@ -1591,11 +1600,11 @@ int odp_pktio_capability(odp_pktio_t pktio, odp_pktio_capability_t *capa)
 	/* Packet vector generation is common for all pktio types */
 	if (entry->param.in_mode ==  ODP_PKTIN_MODE_QUEUE ||
 	    entry->param.in_mode ==  ODP_PKTIN_MODE_SCHED) {
-		capa->vector.supported = ODP_SUPPORT_YES;
-		capa->vector.max_size = CONFIG_PACKET_VECTOR_MAX_SIZE;
-		capa->vector.min_size = 1;
-		capa->vector.max_tmo_ns = 0;
-		capa->vector.min_tmo_ns = 0;
+		capa->ODP_DEPRECATE(vector).supported = ODP_SUPPORT_YES;
+		capa->ODP_DEPRECATE(vector).max_size = CONFIG_PACKET_VECTOR_MAX_SIZE;
+		capa->ODP_DEPRECATE(vector).min_size = 1;
+		capa->ODP_DEPRECATE(vector).max_tmo_ns = 0;
+		capa->ODP_DEPRECATE(vector).min_tmo_ns = 0;
 	}
 
 	capa->reassembly.ip = false;
@@ -2036,27 +2045,28 @@ int odp_pktin_queue_config(odp_pktio_t pktio, const odp_pktin_queue_param_t *par
 	}
 
 	/* Validate packet vector parameters */
-	if (param->vector.enable) {
-		odp_pool_t pool = param->vector.pool;
+	if (param->ODP_DEPRECATE(vector).enable) {
+		odp_pool_t pool = param->ODP_DEPRECATE(vector).pool;
 		odp_pool_info_t pool_info;
 
 		if (mode == ODP_PKTIN_MODE_DIRECT) {
 			_ODP_ERR("packet vectors not supported with ODP_PKTIN_MODE_DIRECT\n");
 			return -1;
 		}
-		if (param->vector.max_size < capa.vector.min_size) {
+		if (param->ODP_DEPRECATE(vector).max_size < capa.ODP_DEPRECATE(vector).min_size) {
 			_ODP_ERR("vector.max_size too small %" PRIu32 "\n",
-				 param->vector.max_size);
+				 param->ODP_DEPRECATE(vector).max_size);
 			return -1;
 		}
-		if (param->vector.max_size > capa.vector.max_size) {
+		if (param->ODP_DEPRECATE(vector).max_size > capa.ODP_DEPRECATE(vector).max_size) {
 			_ODP_ERR("vector.max_size too large %" PRIu32 "\n",
-				 param->vector.max_size);
+				 param->ODP_DEPRECATE(vector).max_size);
 			return -1;
 		}
-		if (param->vector.max_tmo_ns > capa.vector.max_tmo_ns) {
+		if (param->ODP_DEPRECATE(vector).max_tmo_ns >
+		    capa.ODP_DEPRECATE(vector).max_tmo_ns) {
 			_ODP_ERR("vector.max_tmo_ns too large %" PRIu64 "\n",
-				 param->vector.max_tmo_ns);
+				 param->ODP_DEPRECATE(vector).max_tmo_ns);
 			return -1;
 		}
 
@@ -2064,11 +2074,12 @@ int odp_pktin_queue_config(odp_pktio_t pktio, const odp_pktin_queue_param_t *par
 			_ODP_ERR("invalid packet vector pool\n");
 			return -1;
 		}
-		if (pool_info.params.type != ODP_POOL_VECTOR) {
+		if (pool_info.params.type != ODP_DEPRECATE(ODP_POOL_VECTOR)) {
 			_ODP_ERR("wrong pool type\n");
 			return -1;
 		}
-		if (param->vector.max_size > pool_info.params.vector.max_size) {
+		if (param->ODP_DEPRECATE(vector).max_size >
+		    pool_info.params.ODP_DEPRECATE(vector).max_size) {
 			_ODP_ERR("vector.max_size larger than pool max vector size\n");
 			return -1;
 		}
@@ -2076,7 +2087,7 @@ int odp_pktin_queue_config(odp_pktio_t pktio, const odp_pktin_queue_param_t *par
 
 	/* Validate event aggregator parameters */
 	if (!param->classifier_enable && param->queue_param.num_aggr) {
-		if (param->vector.enable) {
+		if (param->ODP_DEPRECATE(vector).enable) {
 			_ODP_ERR("Packet and event vectoring enabled simultaneously\n");
 			return -1;
 		}
@@ -2144,10 +2155,10 @@ int odp_pktin_queue_config(odp_pktio_t pktio, const odp_pktin_queue_param_t *par
 				entry->in_queue[i].vector.max_size = queue_param.aggr[0].max_size;
 				entry->in_queue[i].vector.pool = queue_param.aggr[0].pool;
 				entry->in_queue[i].vector.aggr_queue = odp_queue_aggr(queue, 0);
-			} else if (param->vector.enable) {
-				entry->in_queue[i].vector.type = ODP_EVENT_PACKET_VECTOR;
-				entry->in_queue[i].vector.max_size = param->vector.max_size;
-				entry->in_queue[i].vector.pool = param->vector.pool;
+			} else if (param->ODP_DEPRECATE(vector).enable) {
+				entry->in_queue[i].vector.type = ODP_DEPRECATE(ODP_EVENT_PACKET_VECTOR);
+				entry->in_queue[i].vector.max_size = param->ODP_DEPRECATE(vector).max_size;
+				entry->in_queue[i].vector.pool = param->ODP_DEPRECATE(vector).pool;
 			}
 		} else {
 			entry->in_queue[i].queue = ODP_QUEUE_INVALID;

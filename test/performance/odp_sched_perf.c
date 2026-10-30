@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2018 Linaro Limited
- * Copyright (c) 2020-2025 Nokia
+ * Copyright (c) 2020-2026 Nokia
  */
 
 /**
@@ -30,6 +30,7 @@
 
 #define MAX_QUEUES  (256 * 1024)
 #define MAX_GROUPS  256
+#define MAX_VECTOR_SIZE 16U
 
 /* Limit data values to 16 bits. Large data values are costly on square root calculation. */
 #define DATA_MASK   0xffff
@@ -635,7 +636,7 @@ static int create_pool_helper(const char *name, odp_pool_t *pool_ptr, odp_pool_t
 		max_uarea = pool_capa.pkt.max_uarea_size;
 	} else {
 		max_num = pool_capa.event_vector.max_num;
-		max_vector_size = pool_capa.event_vector.max_size;
+		max_vector_size = ODPH_MIN(MAX_VECTOR_SIZE, pool_capa.event_vector.max_size);
 		max_uarea = pool_capa.event_vector.max_uarea_size;
 		max_vector_pools = pool_capa.event_vector.max_pools;
 	}
@@ -1794,7 +1795,10 @@ int main(int argc, char **argv)
 	init.not_used.feat.cls      = 1;
 	init.not_used.feat.compress = 1;
 	init.not_used.feat.crypto   = 1;
+	init.not_used.feat.dma      = 1;
 	init.not_used.feat.ipsec    = 1;
+	init.not_used.feat.ml       = 1;
+	init.not_used.feat.stash    = 1;
 	init.not_used.feat.timer    = 1;
 	init.not_used.feat.tm       = 1;
 

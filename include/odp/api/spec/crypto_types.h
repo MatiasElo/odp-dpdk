@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2014-2018 Linaro Limited
- * Copyright (c) 2021-2025 Nokia
+ * Copyright (c) 2021-2026 Nokia
  */
 
 /**
@@ -134,13 +134,22 @@ typedef enum {
 	 */
 	ODP_CIPHER_ALG_SNOW3G_UEA2,
 
-	/** NEA4 confidentiality algorithm
+	/** 256-NEA4 confidentiality algorithm
 	 *
-	 *  SNOW 5G based NEA4 algorithm.
-	 *
-	 *  IV is 128 bits.
+	 *  SNOW 5G based 256-NEA4 algorithm.
+	 *  Key size is 32 bytes. IV size is 16 bytes.
 	 */
 	ODP_CIPHER_ALG_SNOW5G_NEA4,
+
+	/** 256-NCA4 AEAD algorithm based on SNOW 5G
+	 *
+	 *  Key size is 32 bytes. IV size is 16 bytes.
+	 *
+	 *  256-NCA4 provides both authentication and encryption. This cipher
+	 *  algorithm must always be paired with ODP_AUTH_ALG_SNOW5G_NCA4 auth
+	 *  algorithm in crypto session creation.
+	 */
+	ODP_CIPHER_ALG_SNOW5G_NCA4,
 
 	/** Confidentiality 128-EEA2 algorithm
 	 *
@@ -151,6 +160,23 @@ typedef enum {
 	 *  COUNT || BEARER || DIRECTION || 0....0
 	 */
 	ODP_CIPHER_ALG_AES_EEA2,
+
+	/** 256-NEA5 confidentiality algorithm
+	 *
+	 *  AES-256 based 256-NEA5 algorithm.
+	 *  Key size is 32 bytes. IV size is 16 bytes.
+	 */
+	ODP_CIPHER_ALG_AES_NEA5,
+
+	/** 256-NCA5 AEAD algorithm based on AES-256
+	 *
+	 *  Key size is 32 bytes. IV size is 16 bytes.
+	 *
+	 *  256-NCA5 provides both authentication and encryption. This cipher
+	 *  algorithm must always be paired with ODP_AUTH_ALG_AES_NCA5 auth
+	 *  algorithm in crypto session creation.
+	 */
+	ODP_CIPHER_ALG_AES_NCA5,
 
 	/** ZUC based confidentiality algorithm
 	 *
@@ -172,13 +198,22 @@ typedef enum {
 	 */
 	ODP_CIPHER_ALG_ZUC_EEA3,
 
-	/** NEA6 confidentiality algorithm
+	/** 256-NEA6 confidentiality algorithm
 	 *
-	 *  256-NEA6 algorithm.
-	 *
-	 *  Key length is 256 bits. IV size is 16 bytes.
+	 *  ZUC-256 based 256-NEA6 algorithm.
+	 *  Key size is 32 bytes. IV size is 16 bytes.
 	 */
 	ODP_CIPHER_ALG_ZUC_NEA6,
+
+	/** 256-NCA6 AEAD algorithm based on ZUC-256
+	 *
+	 *  Key size is 32 bytes. IV size is 16 bytes.
+	 *
+	 *  256-NCA6 provides both authentication and encryption. This cipher
+	 *  algorithm must always be paired with ODP_AUTH_ALG_ZUC_NCA6 auth
+	 *  algorithm in crypto session creation.
+	 */
+	ODP_CIPHER_ALG_ZUC_NCA6,
 
 	/** SNOW-V stream cipher */
 	ODP_CIPHER_ALG_SNOW_V,
@@ -292,7 +327,7 @@ typedef enum {
 	 *  NIST and RFC specifications of GMAC refer to all data to be
 	 *  authenticated as AAD. In ODP the data to be authenticated, i.e.
 	 *  AAD, is ODP packet data and specified using the auth_range
-	 *  parameter. The aad_length and aad_ptr parameters, which would
+	 *  parameter. The auth_aad_len and aad_ptr parameters, which would
 	 *  require the data to be contiguous in memory, are ignored with
 	 *  AES-GMAC.
 	 *
@@ -356,13 +391,20 @@ typedef enum {
 	 */
 	ODP_AUTH_ALG_SNOW3G_UIA2,
 
-	/** NIA4 integrity algorithm
+	/** 256-NIA4 integrity algorithm
 	 *
-	 *  SNOW 5G based NIA4 algorithm.
-	 *
-	 *  IV is 128 bits.
+	 *  SNOW 5G based 256-NIA4 algorithm.
+	 *  Key size is 32 bytes. IV size is 16 bytes.
 	 */
 	ODP_AUTH_ALG_SNOW5G_NIA4,
+
+	/** 256-NCA4 AEAD algorithm based on SNOW 5G
+	 *
+	 *  256-NCA4 provides both authentication and encryption. This auth
+	 *  algorithm must always be paired with ODP_CIPHER_ALG_SNOW5G_NCA4
+	 *  cipher algorithm in crypto session creation.
+	 */
+	ODP_AUTH_ALG_SNOW5G_NCA4,
 
 	/** Integrity 128-EIA2 algorithm
 	 *
@@ -373,6 +415,21 @@ typedef enum {
 	 *  COUNT || BEARER || DIRECTION || 0....0
 	 */
 	ODP_AUTH_ALG_AES_EIA2,
+
+	/** 256-NIA5 integrity algorithm
+	 *
+	 *  AES-256 based 256-NIA5 algorithm.
+	 *  Key size is 32 bytes. IV size is 16 bytes.
+	 */
+	ODP_AUTH_ALG_AES_NIA5,
+
+	/** 256-NCA5 AEAD algorithm based on AES-256
+	 *
+	 *  256-NCA5 provides both authentication and encryption. This auth
+	 *  algorithm must always be paired with ODP_CIPHER_ALG_AES_NCA5
+	 *  cipher algorithm in crypto session creation.
+	 */
+	ODP_AUTH_ALG_AES_NCA5,
 
 	/** ZUC-based integrity algorithm.
 	 *
@@ -395,13 +452,20 @@ typedef enum {
 	 */
 	ODP_AUTH_ALG_ZUC_EIA3,
 
-	/** NIA6 integrity algorithm
+	/** 256-NIA6 integrity algorithm
 	 *
-	 *  256-NIA6 algorithm.
-	 *
-	 *  Key length is 256 bits. IV size is 16 bytes.
+	 *  ZUC-256 based 256-NIA6 algorithm.
+	 *  Key size is 32 bytes. IV size is 16 bytes.
 	 */
 	ODP_AUTH_ALG_ZUC_NIA6,
+
+	/** 256-NCA6 AEAD algorithm based on ZUC-256
+	 *
+	 *  256-NCA6 provides both authentication and encryption. This auth
+	 *  algorithm must always be paired with ODP_CIPHER_ALG_ZUC_NCA6
+	 *  cipher algorithm in crypto session creation.
+	 */
+	ODP_AUTH_ALG_ZUC_NCA6,
 
 	/** SNOW-V-GCM AEAD algorithm
 	 *
@@ -546,14 +610,26 @@ typedef union odp_crypto_cipher_algos_t {
 		/** ODP_CIPHER_ALG_SNOW5G_NEA4 */
 		uint32_t snow5g_nea4 : 1;
 
+		/** ODP_CIPHER_ALG_SNOW5G_NCA4 */
+		uint32_t snow5g_nca4 : 1;
+
 		/** ODP_CIPHER_ALG_AES_EEA2 */
 		uint32_t aes_eea2 : 1;
+
+		/** ODP_CIPHER_ALG_AES_NEA5 */
+		uint32_t aes_nea5 : 1;
+
+		/** ODP_CIPHER_ALG_AES_NCA5 */
+		uint32_t aes_nca5 : 1;
 
 		/** ODP_CIPHER_ALG_ZUC_EEA3 */
 		uint32_t zuc_eea3    : 1;
 
 		/** ODP_CIPHER_ALG_ZUC_NEA6 */
 		uint32_t zuc_nea6    : 1;
+
+		/** ODP_CIPHER_ALG_ZUC_NCA6 */
+		uint32_t zuc_nca6    : 1;
 
 		/** ODP_CIPHER_ALG_SNOW_V */
 		uint32_t snow_v      : 1;
@@ -651,14 +727,26 @@ typedef union odp_crypto_auth_algos_t {
 		/** ODP_AUTH_ALG_SNOW5G_NIA4 */
 		uint32_t snow5g_nia4 : 1;
 
+		/** ODP_AUTH_ALG_SNOW5G_NCA4 */
+		uint32_t snow5g_nca4 : 1;
+
 		/** ODP_AUTH_ALG_AES_EIA2 */
 		uint32_t aes_eia2 : 1;
+
+		/** ODP_AUTH_ALG_AES_NIA5 */
+		uint32_t aes_nia5 : 1;
+
+		/** ODP_AUTH_ALG_AES_NCA5 */
+		uint32_t aes_nca5 : 1;
 
 		/** ODP_AUTH_ALG_ZUC_EIA3 */
 		uint32_t zuc_eia3    : 1;
 
 		/** ODP_AUTH_ALG_ZUC_NIA6 */
 		uint32_t zuc_nia6    : 1;
+
+		/** ODP_AUTH_ALG_ZUC_NCA6 */
+		uint32_t zuc_nca6    : 1;
 
 		/** ODP_AUTH_ALG_SNOW_V_GCM */
 		uint32_t snow_v_gcm : 1;
@@ -818,6 +906,24 @@ typedef struct odp_crypto_session_param_t {
 	 */
 	odp_bool_t auth_range_in_bits;
 
+	/** AAD length unit
+	 *
+	 *  When this flag is true, AAD length is in bits. Otherwise it is in
+	 *  bytes.
+	 *
+	 *  If auth capabilities do not include aad_len.bit_mode, setting this
+	 *  to true causes a session creation failure.
+	 *
+	 *  When true, the most significant bit is considered to be the first
+	 *  bit of a byte and the bits of the last byte that fall out of the
+	 *  AAD length are ignored.
+	 *
+	 *  This parameter is ignored whenever auth_aad_len is ignored.
+	 *
+	 *  The default value is false.
+	 */
+	odp_bool_t auth_aad_len_in_bits;
+
 	/** Authenticate cipher vs. plain text
 	 *
 	 *  Controls ordering of authentication and cipher operations,
@@ -925,11 +1031,14 @@ typedef struct odp_crypto_session_param_t {
 	 */
 	uint32_t auth_digest_len;
 
-	/** Additional Authenticated Data (AAD) length in bytes
+	/** Additional Authenticated Data (AAD) length
 	 *
 	 *  AAD length is constant for all operations (packets) of the session.
 	 *  Set to zero when AAD is not used. Use odp_crypto_auth_capability()
 	 *  for supported AAD lengths. The default value is zero.
+	 *
+	 *  This field expresses AAD length in bits or bytes depending on the
+	 *  auth_aad_len_in_bits parameter.
 	 */
 	uint32_t auth_aad_len;
 
@@ -942,12 +1051,13 @@ typedef struct odp_crypto_session_param_t {
 
 	/** Output pool
 	 *
-	 *  This field is unused and will be deprecated later.
 	 *  The value must be left to the default value.
 	 *
 	 *  Default value is ODP_POOL_INVALID.
+	 *
+	 *  @deprecated Unused by current operation types.
 	 */
-	odp_pool_t output_pool;
+	odp_pool_t ODP_DEPRECATE(output_pool);
 
 } odp_crypto_session_param_t;
 
@@ -987,8 +1097,9 @@ typedef struct odp_crypto_packet_op_param_t {
 	 */
 	uint32_t hash_result_offset;
 
-	/** Pointer to AAD. AAD length is defined by 'auth_aad_len'
-	 *  session parameter.
+	/** Pointer to AAD. AAD length is defined by 'auth_aad_len' session
+	 *  parameter in bits or bytes. This pointer must point to a memory area
+	 *  that is large enough to contain the AAD.
 	 */
 	const uint8_t *aad_ptr;
 
@@ -1240,8 +1351,16 @@ typedef struct odp_crypto_auth_capability_t {
 		uint32_t max;
 
 		/** Increment of supported lengths between min and max
-		 *  (in bytes) */
+		 *  (in bytes) when AAD is expressed in bytes */
 		uint32_t inc;
+
+		/** AAD length can be expressed in bits by setting the
+		 *  auth_aad_len_in_bits session parameter to true.
+		 *  In that case all AAD bit lengths in the range from
+		 *  min to max (which are always in bytes) are allowed
+		 *  and the inc capability does not apply. */
+		odp_bool_t bit_mode;
+
 	} aad_len;
 
 	/** Auth algorithm supports bit mode

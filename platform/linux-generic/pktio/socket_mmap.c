@@ -148,7 +148,6 @@ static inline unsigned pkt_mmap_v2_rx(pktio_entry_t *pktio_entry,
 	struct ring *ring;
 	odp_pool_t pool = pkt_sock->pool;
 	uint16_t frame_offset = pktio_entry->pktin_frame_offset;
-	uint16_t vlan_len = 0;
 	const odp_proto_layer_t layer = pktio_entry->parse_layer;
 	const odp_pktin_config_opt_t opt = pktio_entry->config.pktin;
 
@@ -161,6 +160,7 @@ static inline unsigned pkt_mmap_v2_rx(pktio_entry_t *pktio_entry,
 
 	for (i = 0; i < num; i++) {
 		struct tpacket2_hdr *tp_hdr;
+		uint16_t vlan_len = 0;
 		odp_packet_t pkt;
 		odp_packet_hdr_t *hdr;
 		int ret;
@@ -264,8 +264,28 @@ static inline unsigned pkt_mmap_v2_rx(pktio_entry_t *pktio_entry,
 		}
 
 		if (layer) {
-			ret = _odp_packet_parse_common(hdr, pkt_buf, pkt_len,
-						       pkt_len, layer, opt);
+			const uint8_t *base = pkt_buf;
+			uint32_t frame_len = pkt_len;
+			uint32_t seg_len = pkt_len;
+			uint8_t buf[PARSE_BYTES];
+
+			/* Parse the packet with the recreated VLAN header */
+			if (vlan_len) {
+				base = packet_data(hdr);
+				frame_len = pkt_len + vlan_len;
+				seg_len = packet_first_seg_len(hdr);
+
+				/* Make sure there is enough data for the packet
+				 * parser in the case of a segmented packet. */
+				if (odp_unlikely(seg_len < PARSE_BYTES && frame_len > seg_len)) {
+					seg_len = _ODP_MIN(frame_len, PARSE_BYTES);
+					odp_packet_copy_to_mem(pkt, 0, seg_len, buf);
+					base = buf;
+				}
+			}
+
+			ret = _odp_packet_parse_common(hdr, base, frame_len,
+						       seg_len, layer, opt);
 			if (ret)
 				odp_atomic_inc_u64(&pktio_entry->stats_extra.in_errors);
 
@@ -279,7 +299,7 @@ static inline unsigned pkt_mmap_v2_rx(pktio_entry_t *pktio_entry,
 			if (cls_enabled) {
 				odp_pool_t new_pool;
 
-				ret = _odp_cls_classify_packet(pktio_entry, pkt_buf,
+				ret = _odp_cls_classify_packet(pktio_entry, base,
 							       &new_pool, hdr);
 				if (ret < 0)
 					odp_atomic_inc_u64(&pktio_entry->stats_extra.in_discards);

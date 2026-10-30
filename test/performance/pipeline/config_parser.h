@@ -11,6 +11,7 @@
 #include <odp_api.h>
 
 #include "helpers.h"
+#include "odp_pipeline_config.h"
 
 typedef odp_bool_t (*conf_init_fn_t)(config_t *config);
 typedef odp_bool_t (*conf_deploy_fn_t)(void);
@@ -18,11 +19,15 @@ typedef void (*conf_undeploy_fn_t)(void);
 typedef void (*conf_destroy_fn_t)(void);
 typedef uintptr_t (*conf_resource_fn_t)(const char *resource);
 
-odp_bool_t config_parser_init(char *path);
+typedef struct {
+	char **libs;
+	char *path;
+	uint32_t num_libs;
+} opts_t;
+
+odp_bool_t config_parser_init(const opts_t *opts);
 
 odp_bool_t config_parser_deploy(void);
-
-uintptr_t config_parser_get(const char *domain, const char *resource);
 
 void config_parser_register_parser(const char *domain, conf_init_fn_t init_fn,
 				   conf_deploy_fn_t deploy_fn, conf_undeploy_fn_t undeploy_fn,

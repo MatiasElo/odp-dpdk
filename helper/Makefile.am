@@ -20,6 +20,7 @@ helperinclude_HEADERS = \
 		  include/odp/helper/autoheader_external.h\
 		  include/odp/helper/deprecated.h\
 		  include/odp/helper/chksum.h\
+		  include/odp/helper/crypto.h\
 		  include/odp/helper/debug.h \
 		  include/odp/helper/eth.h\
 		  include/odp/helper/gtp.h\
@@ -38,16 +39,6 @@ helperinclude_HEADERS = \
 		  include/odp/helper/udp.h \
 		  include/odp/helper/version.h
 
-if helper_linux
-helperinclude_HEADERS += \
-		  include/odp/helper/linux.h
-
-helperlinuxincludedir = $(includedir)/odp/helper/linux
-helperlinuxinclude_HEADERS = \
-		  include/odp/helper/linux/pthread.h \
-		  include/odp/helper/linux/process.h
-endif
-
 if helper_cli
 helperinclude_HEADERS += \
 		  include/odp/helper/cli.h
@@ -57,14 +48,10 @@ __LIB__libodphelper_la_SOURCES = \
 					eth.c \
 					ip.c \
 					chksum.c \
+					crypto.c \
 					ipsec.c \
 					threads.c \
 					version.c
-
-if helper_linux
-__LIB__libodphelper_la_SOURCES += \
-				linux/thread.c
-endif
 
 if helper_cli
 __LIB__libodphelper_la_SOURCES += \

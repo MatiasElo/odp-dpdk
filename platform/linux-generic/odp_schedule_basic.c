@@ -1467,17 +1467,17 @@ static int schedule_ord_enq_multi_no_stash(odp_queue_t dst_queue,
 
 static inline void schedule_ord_stash_release(odp_queue_t dst_queue)
 {
-	if (odp_likely(sched_local.sync_ctx != ODP_SCHED_SYNC_ORDERED ||
-		       sched_local.ordered.stash_num == 0))
+	if (odp_likely(sched_local.sync_ctx != ODP_SCHED_SYNC_ORDERED))
 		return;
 
 	schedule_ord_enq_multi_no_stash(dst_queue, NULL, 0, NULL);
-	ordered_stash_release();
+	if (sched_local.ordered.in_order)
+		ordered_stash_release();
 }
 
-static inline void schedule_ord_stash_release_no_stash(odp_queue_t dst_queue ODP_UNUSED)
+static inline void schedule_ord_stash_release_no_stash(odp_queue_t dst_queue)
 {
-	/* Nothing to do */
+	schedule_ord_enq_multi_no_stash(dst_queue, NULL, 0, NULL);
 }
 
 static inline int queue_is_pktin(uint32_t queue_index)
@@ -2497,6 +2497,16 @@ static int schedule_capability(odp_schedule_capability_t *capa)
 	capa->aggr.min_size = 2;
 	capa->aggr.max_tmo_ns = 0;
 	capa->aggr.min_tmo_ns = 0;
+	capa->aggr.source.bit.queue = 1;
+	capa->aggr.source.bit.pktin = 1;
+	capa->aggr.source.bit.tx_compl = 1;
+	capa->aggr.source.bit.cls = 1;
+	capa->aggr.source.bit.timer = 1;
+	capa->aggr.source.bit.crypto = 1;
+	capa->aggr.source.bit.comp = 1;
+	capa->aggr.source.bit.ipsec = 1;
+	capa->aggr.source.bit.dma = 1;
+	capa->aggr.source.bit.ml = 1;
 	capa->aggr.stats.bit.len = 1;
 
 	return 0;

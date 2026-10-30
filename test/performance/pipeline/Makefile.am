@@ -5,11 +5,27 @@ AM_CFLAGS += \
 	$(LIBCONFIG_CFLAGS) \
 	-I$(top_srcdir)/test/performance/pipeline
 
+pkgconfigdir = $(libdir)/pkgconfig
+pkgconfig_DATA = libodp_pipeline.pc
+
+include_HEADERS = \
+	odp_pipeline_config.h \
+	odp_pipeline_domains.h \
+	odp_pipeline_orchestrator.h \
+	odp_pipeline_work.h
+
 bin_PROGRAMS = odp_pipeline
+
+# Export the executable's dynamic symbols so runtime-loaded work libraries can resolve
+# the public odp_pl_*() functions and link libdl for dlopen().
+odp_pipeline_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic
+odp_pipeline_LDADD = $(LDADD) -ldl
 
 odp_pipeline_SOURCES = \
 	cls_parser.c \
 	common.h \
+	odp_pipeline_config.h \
+	odp_pipeline_domains.h \
 	config_parser.h \
 	config_parser.c \
 	cpumap.h \
@@ -21,6 +37,7 @@ odp_pipeline_SOURCES = \
 	flow_parser.c \
 	helpers.h \
 	main.c \
+	odp_pipeline_orchestrator.h \
 	orchestrator.h \
 	orchestrator.c \
 	pktio_parser.c \
@@ -29,6 +46,7 @@ odp_pipeline_SOURCES = \
 	sched_parser.c \
 	stash_parser.c \
 	timer_parser.c \
+	odp_pipeline_work.h \
 	work.h \
 	work.c \
 	work_forward.c \
@@ -40,4 +58,10 @@ odp_pipeline_SOURCES = \
 	work_wait.c \
 	worker.h \
 	worker_parser.c
+
+EXTRA_DIST = \
+	pipeline.conf \
+	pipeline_example1.conf \
+	pipeline_example2.conf \
+	work_example.c
 endif

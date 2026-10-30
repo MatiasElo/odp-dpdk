@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2015-2018 Linaro Limited
- * Copyright (c) 2022-2024 Nokia
+ * Copyright (c) 2022-2026 Nokia
  */
 
 /**
@@ -179,6 +179,16 @@ int odp_event_filter_packet(const odp_event_t event[],
 			    odp_event_t remain[], int num);
 
 /**
+ * Print event debug information
+ *
+ * Print implementation specific debug information about the event to the ODP
+ * log.
+ *
+ * @param event    Event handle
+ */
+void odp_event_print(odp_event_t event);
+
+/**
  * Get printable value for an odp_event_t
  *
  * @param hdl  odp_event_t handle to be printed
@@ -211,7 +221,7 @@ int odp_event_is_valid(odp_event_t event);
  * Frees the event based on its type. Results are undefined if event type is
  * unknown.
  *
- * In case of vector events (ODP_EVENT_VECTOR and ODP_EVENT_PACKET_VECTOR)
+ * In case of vector events (ODP_EVENT_VECTOR and (deprecated) ODP_EVENT_PACKET_VECTOR)
  * the function frees the vector and all events or packets stored inside it.
  *
  * @param event    Event handle

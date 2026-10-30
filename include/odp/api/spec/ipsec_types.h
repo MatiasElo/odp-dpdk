@@ -15,6 +15,7 @@
 
 #include <odp/api/classification.h>
 #include <odp/api/crypto_types.h>
+#include <odp/api/deprecated.h>
 #include <odp/api/packet_io_types.h>
 #include <odp/api/protocols.h>
 #include <odp/api/std_types.h>
@@ -392,8 +393,11 @@ typedef struct odp_ipsec_capability_t {
 	 *  be used for many SAs. */
 	uint32_t max_queues;
 
-	/** Support for returning completion packets as vectors */
-	odp_pktin_vector_capability_t vector;
+	/** Support for returning completion packets as vectors
+	 *
+	 * @deprecated Use event aggregator queues to generate event vectors
+	 *             instead. */
+	odp_pktin_vector_capability_t ODP_DEPRECATE(vector);
 
 	/** Maximum anti-replay window size. */
 	uint32_t max_antireplay_ws;
@@ -498,8 +502,11 @@ typedef struct odp_ipsec_config_t {
 	 * configuration or by using event aggregators as destination queue(s).
 	 * Both options cannot be enabled simultaneously in the same ODP
 	 * application.
+	 *
+	 * @deprecated Use event aggregator queues to generate event vectors
+	 *             instead.
 	 */
-	odp_pktin_vector_config_t vector;
+	odp_pktin_vector_config_t ODP_DEPRECATE(vector);
 
 } odp_ipsec_config_t;
 
@@ -623,20 +630,22 @@ typedef struct odp_ipsec_crypto_param_t {
 	 * Zero value indicates that the default ICV length shall be used.
 	 * The default length depends on the selected algorithm as follows:
 	 *
-	 * | Algorithm                      | Default length | Other lengths |
-	 * |--------------------------------|:--------------:|:-------------:|
-	 * | ODP_AUTH_ALG_NULL              |              0 |               |
-	 * | ODP_AUTH_ALG_MD5_HMAC          |             12 |               |
-	 * | ODP_AUTH_ALG_SHA1_HMAC         |             12 |               |
-	 * | ODP_AUTH_ALG_SHA256_HMAC       |             16 |               |
-	 * | ODP_AUTH_ALG_SHA384_HMAC       |             24 |               |
-	 * | ODP_AUTH_ALG_SHA512_HMAC       |             32 |               |
-	 * | ODP_AUTH_ALG_AES_GCM           |             16 |         8, 12 |
-	 * | ODP_AUTH_ALG_AES_GMAC          |             16 |               |
-	 * | ODP_AUTH_ALG_AES_CCM           |             16 |         8, 12 |
-	 * | ODP_AUTH_ALG_AES_CMAC          |             12 |               |
-	 * | ODP_AUTH_ALG_AES_XCBC_MAC      |             12 |               |
-	 * | ODP_AUTH_ALG_CHACHA20_POLY1305 |             16 |               |
+	 * | Algorithm                      | Default length |
+	 * |--------------------------------|:--------------:|
+	 * | ODP_AUTH_ALG_NULL              |              0 |
+	 * | ODP_AUTH_ALG_MD5_HMAC          |             12 |
+	 * | ODP_AUTH_ALG_SHA1_HMAC         |             12 |
+	 * | ODP_AUTH_ALG_SHA256_HMAC       |             16 |
+	 * | ODP_AUTH_ALG_SHA384_HMAC       |             24 |
+	 * | ODP_AUTH_ALG_SHA512_HMAC       |             32 |
+	 * | ODP_AUTH_ALG_AES_GCM           |             16 |
+	 * | ODP_AUTH_ALG_AES_GMAC          |             16 |
+	 * | ODP_AUTH_ALG_AES_CCM           |             16 |
+	 * | ODP_AUTH_ALG_AES_CMAC          |             12 |
+	 * | ODP_AUTH_ALG_AES_XCBC_MAC      |             12 |
+	 * | ODP_AUTH_ALG_CHACHA20_POLY1305 |             16 |
+	 * | ODP_AUTH_ALG_SM3_HMAC          |             32 |
+	 * | other                          | impl. specific |
 	 *
 	 * The requested ICV length must be supported for the selected
 	 * algorithm as indicated by odp_ipsec_auth_capability().

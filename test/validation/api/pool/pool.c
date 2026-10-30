@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2014-2018 Linaro Limited
  * Copyright (c) 2020 Marvell
- * Copyright (c) 2020-2025 Nokia
+ * Copyright (c) 2020-2026 Nokia
  */
 
 #include <odp_api.h>
@@ -18,6 +18,8 @@
 #define VEC_LEN  32
 #define PKT_LEN  400
 #define PKT_NUM  500
+#define ALIGN_NUM 32
+#define ALIGN_LEN 1223
 #define ELEM_NUM 10u
 #define ELEM_SIZE 128u
 #define CACHE_SIZE 32
@@ -44,11 +46,21 @@ typedef struct {
 	uint8_t mark[ELEM_NUM];
 } uarea_init_t;
 
+typedef struct {
+	void **buf;
+	uint32_t num_buf;
+	uint32_t buf_size;
+	uint32_t min_align;
+	uint32_t min_mem_align;
+	odp_bool_t size_aligned;
+} pool_ext_populate_t;
+
 static global_shared_mem_t *global_mem;
 
 static odp_pool_capability_t global_pool_capa;
 static odp_pool_param_t default_pool_param;
 static odp_pool_ext_capability_t global_pool_ext_capa;
+static odp_pool_ext_capability_t global_pool_ext_buf_capa;
 
 static void test_param_init(uint8_t fill)
 {
@@ -74,9 +86,11 @@ static void test_param_init(uint8_t fill)
 	CU_ASSERT(param.tmo.cache_size >= global_pool_capa.tmo.min_cache_size &&
 		  param.tmo.cache_size <= global_pool_capa.tmo.max_cache_size);
 
+#if ODP_DEPRECATED_API
 	CU_ASSERT(param.vector.uarea_size == 0);
 	CU_ASSERT(param.vector.cache_size >= global_pool_capa.vector.min_cache_size &&
 		  param.vector.cache_size <= global_pool_capa.vector.max_cache_size);
+#endif
 
 	CU_ASSERT(param.event_vector.uarea_size == 0);
 	CU_ASSERT(param.event_vector.cache_size >= global_pool_capa.event_vector.min_cache_size &&
@@ -138,6 +152,7 @@ static void pool_test_create_destroy_timeout(void)
 	pool_create_destroy(&param);
 }
 
+#if ODP_DEPRECATED_API
 static void pool_test_create_destroy_packet_vector(void)
 {
 	odp_pool_param_t param;
@@ -158,6 +173,7 @@ static void pool_test_create_destroy_packet_vector(void)
 
 	pool_create_destroy(&param);
 }
+#endif
 
 static void pool_test_create_destroy_event_vector(void)
 {
@@ -195,6 +211,7 @@ static int pool_check_packet_uarea_init(void)
 	return ODP_TEST_ACTIVE;
 }
 
+#if ODP_DEPRECATED_API
 static int check_pkt_vector_uarea_init(void)
 {
 	if (global_pool_capa.vector.max_uarea_size == 0 ||
@@ -203,6 +220,7 @@ static int check_pkt_vector_uarea_init(void)
 
 	return ODP_TEST_ACTIVE;
 }
+#endif
 
 static int check_ev_vector_uarea_init(void)
 {
@@ -315,6 +333,7 @@ static void pool_test_packet_uarea_init(void)
 	odp_pool_destroy(pool);
 }
 
+#if ODP_DEPRECATED_API
 static void pool_test_packet_vector_uarea_init(void)
 {
 	odp_pool_param_t param;
@@ -358,6 +377,7 @@ static void pool_test_packet_vector_uarea_init(void)
 
 	odp_pool_destroy(pool);
 }
+#endif
 
 static void pool_test_event_vector_uarea_init(void)
 {
@@ -567,6 +587,7 @@ static void pool_test_same_name_tmo(void)
 	pool_test_same_name(&param);
 }
 
+#if ODP_DEPRECATED_API
 static void pool_test_same_name_packet_vector(void)
 {
 	odp_pool_param_t param;
@@ -579,6 +600,7 @@ static void pool_test_same_name_packet_vector(void)
 
 	pool_test_same_name(&param);
 }
+#endif
 
 static void pool_test_same_name_event_vector(void)
 {
@@ -642,6 +664,48 @@ static void pool_test_alloc_buffer_max_cache(void)
 	alloc_buffer(global_pool_capa.buf.max_cache_size);
 }
 
+static void buffer_align(uint32_t param_align, uint32_t expected_align)
+{
+	odp_pool_t pool;
+	odp_pool_param_t param;
+	odp_buffer_t buf[ALIGN_NUM];
+	uint32_t i, num = 0;
+
+	CU_ASSERT_FATAL(TEST_CHECK_POW2(expected_align));
+
+	odp_pool_param_init(&param);
+	param.type      = ODP_POOL_BUFFER;
+	param.buf.num   = ALIGN_NUM;
+	param.buf.size  = ALIGN_LEN;
+	param.buf.align = param_align;
+
+	pool = odp_pool_create(NULL, &param);
+	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
+
+	for (i = 0; i < ALIGN_NUM; i++) {
+		buf[num] = odp_buffer_alloc(pool);
+		CU_ASSERT(buf[num] != ODP_BUFFER_INVALID);
+
+		if (buf[num] == ODP_BUFFER_INVALID)
+			break;
+
+		CU_ASSERT((uintptr_t)odp_buffer_addr(buf[num]) % expected_align == 0);
+		CU_ASSERT(odp_buffer_size(buf[num]) >= ALIGN_LEN);
+		num++;
+	}
+
+	odp_buffer_free_multi(buf, num);
+
+	CU_ASSERT(odp_pool_destroy(pool) == 0);
+}
+
+static void pool_test_alloc_buffer_align(void)
+{
+	buffer_align(0, 8);
+	buffer_align(global_pool_capa.buf.max_align, global_pool_capa.buf.max_align);
+}
+
+#if ODP_DEPRECATED_API
 static void alloc_packet_vector(uint32_t cache_size)
 {
 	odp_pool_t pool;
@@ -702,6 +766,7 @@ static void pool_test_alloc_packet_vector_max_cache(void)
 {
 	alloc_packet_vector(global_pool_capa.vector.max_cache_size);
 }
+#endif
 
 static void alloc_event_vector(uint32_t cache_size)
 {
@@ -811,6 +876,47 @@ static void pool_test_alloc_packet_min_cache(void)
 static void pool_test_alloc_packet_max_cache(void)
 {
 	alloc_packet(global_pool_capa.pkt.max_cache_size);
+}
+
+static void packet_align(uint32_t param_align, uint32_t expected_align)
+{
+	odp_pool_t pool;
+	odp_pool_param_t param;
+	odp_packet_t pkt[ALIGN_NUM];
+	uint32_t i, num = 0;
+
+	CU_ASSERT_FATAL(TEST_CHECK_POW2(expected_align));
+
+	odp_pool_param_init(&param);
+	param.type      = ODP_POOL_PACKET;
+	param.pkt.num   = ALIGN_NUM;
+	param.pkt.len   = ALIGN_LEN;
+	param.pkt.align = param_align;
+
+	pool = odp_pool_create(NULL, &param);
+	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
+
+	for (i = 0; i < ALIGN_NUM; i++) {
+		pkt[num] = odp_packet_alloc(pool, ALIGN_LEN);
+		CU_ASSERT(pkt[num] != ODP_PACKET_INVALID);
+
+		if (pkt[num] == ODP_PACKET_INVALID)
+			break;
+
+		CU_ASSERT((uintptr_t)odp_packet_data(pkt[num]) % expected_align == 0);
+		CU_ASSERT(odp_packet_len(pkt[num]) == ALIGN_LEN);
+		num++;
+	}
+
+	odp_packet_free_multi(pkt, num);
+
+	CU_ASSERT(odp_pool_destroy(pool) == 0);
+}
+
+static void pool_test_alloc_packet_align(void)
+{
+	packet_align(0, 1);
+	packet_align(global_pool_capa.pkt.max_align, global_pool_capa.pkt.max_align);
 }
 
 static void pool_test_alloc_packet_subparam(void)
@@ -1115,6 +1221,7 @@ static void pool_test_pkt_max_num(void)
 	CU_ASSERT(odp_pool_destroy(pool) == 0);
 }
 
+#if ODP_DEPRECATED_API
 static void pool_test_packet_vector_max_num(void)
 {
 	odp_pool_t pool;
@@ -1162,6 +1269,7 @@ static void pool_test_packet_vector_max_num(void)
 	CU_ASSERT(odp_shm_free(shm) == 0);
 	CU_ASSERT(odp_pool_destroy(pool) == 0);
 }
+#endif
 
 static void pool_test_event_vector_max_num(void)
 {
@@ -1529,6 +1637,7 @@ static int pool_check_packet_pool_statistics(void)
 	return ODP_TEST_ACTIVE;
 }
 
+#if ODP_DEPRECATED_API
 static int pool_check_packet_vector_pool_statistics(void)
 {
 	if (global_pool_capa.vector.stats.all == 0)
@@ -1536,6 +1645,7 @@ static int pool_check_packet_vector_pool_statistics(void)
 
 	return ODP_TEST_ACTIVE;
 }
+#endif
 
 static int pool_check_event_vector_pool_statistics(void)
 {
@@ -1593,6 +1703,7 @@ static void pool_test_pool_statistics(odp_pool_type_t pool_type)
 		param.pkt.len = PKT_LEN;
 		param.pkt.num = num_obj;
 		param.pkt.max_num = num_obj;
+#if ODP_DEPRECATED_API
 	} else if (pool_type == ODP_POOL_VECTOR) {
 		max_pools = global_pool_capa.vector.max_pools < max_pools ?
 				global_pool_capa.vector.max_pools : max_pools;
@@ -1607,6 +1718,7 @@ static void pool_test_pool_statistics(odp_pool_type_t pool_type)
 		param.vector.num = num_obj;
 		param.vector.max_size = global_pool_capa.vector.max_size  < VEC_LEN ?
 						global_pool_capa.vector.max_size : VEC_LEN;
+#endif
 	} else if (pool_type == ODP_POOL_EVENT_VECTOR) {
 		max_pools = global_pool_capa.event_vector.max_pools < max_pools ?
 				global_pool_capa.event_vector.max_pools : max_pools;
@@ -1719,11 +1831,13 @@ static void pool_test_pool_statistics(odp_pool_type_t pool_type)
 
 				if (pkt != ODP_PACKET_INVALID)
 					new_event = odp_packet_to_event(pkt);
+#if ODP_DEPRECATED_API
 			} else if (pool_type == ODP_POOL_VECTOR) {
 				odp_packet_vector_t pktv = odp_packet_vector_alloc(pool[i]);
 
 				if (pktv != ODP_PACKET_VECTOR_INVALID)
 					new_event = odp_packet_vector_to_event(pktv);
+#endif
 			} else if (pool_type == ODP_POOL_EVENT_VECTOR) {
 				odp_event_vector_t evv = odp_event_vector_alloc(pool[i]);
 
@@ -1904,10 +2018,12 @@ static void pool_test_packet_pool_statistics(void)
 	pool_test_pool_statistics(ODP_POOL_PACKET);
 }
 
+#if ODP_DEPRECATED_API
 static void pool_test_packet_vector_pool_statistics(void)
 {
 	pool_test_pool_statistics(ODP_POOL_VECTOR);
 }
+#endif
 
 static void pool_test_event_vector_pool_statistics(void)
 {
@@ -1951,7 +2067,7 @@ static void pool_ext_init_packet_pool_param(odp_pool_ext_param_t *param)
 	trailer_size = capa.pkt.odp_trailer_size;
 
 	CU_ASSERT_FATAL(head_offset < buf_size);
-	CU_ASSERT_FATAL((head_offset + trailer_size)  < buf_size);
+	CU_ASSERT_FATAL((head_offset + trailer_size) < buf_size);
 
 	while (head_offset % head_align) {
 		app_hdr_size++;
@@ -1964,7 +2080,7 @@ static void pool_ext_init_packet_pool_param(odp_pool_ext_param_t *param)
 	}
 
 	CU_ASSERT_FATAL(head_offset < buf_size);
-	CU_ASSERT_FATAL((head_offset + trailer_size)  < buf_size);
+	CU_ASSERT_FATAL((head_offset + trailer_size) < buf_size);
 	CU_ASSERT_FATAL((head_offset % head_align) == 0);
 
 	param->pkt.num_buf         = num_buf;
@@ -1974,13 +2090,66 @@ static void pool_ext_init_packet_pool_param(odp_pool_ext_param_t *param)
 	param->pkt.headroom        = headroom;
 }
 
-static void test_packet_pool_ext_capa(void)
+static void pool_ext_init_buffer_pool_param(odp_pool_ext_param_t *param)
+{
+	odp_pool_ext_capability_t capa;
+	uint32_t head_offset, data_align, trailer_size;
+	odp_pool_type_t type = ODP_POOL_BUFFER;
+	uint32_t num_buf = EXT_NUM_BUF;
+	uint32_t buf_size = EXT_BUF_SIZE;
+	uint32_t uarea_size = EXT_UAREA_SIZE;
+	uint32_t app_hdr_size = EXT_APP_HDR_SIZE;
+
+	CU_ASSERT_FATAL(odp_pool_ext_capability(type, &capa) == 0);
+
+	odp_pool_ext_param_init(type, param);
+
+	if (num_buf > capa.buf.max_num_buf)
+		num_buf = capa.buf.max_num_buf;
+
+	if (buf_size > capa.buf.max_buf_size)
+		buf_size = capa.buf.max_buf_size;
+
+	if (uarea_size > capa.buf.max_uarea_size)
+		uarea_size = capa.buf.max_uarea_size;
+
+	data_align = capa.buf.min_data_align;
+	head_offset = capa.buf.odp_header_size + app_hdr_size;
+	trailer_size = capa.buf.odp_trailer_size;
+
+	CU_ASSERT_FATAL(head_offset < buf_size);
+	CU_ASSERT_FATAL((head_offset + trailer_size) < buf_size);
+
+	while (head_offset % data_align) {
+		app_hdr_size++;
+		head_offset = capa.buf.odp_header_size + app_hdr_size;
+
+		if (head_offset >= buf_size) {
+			ODPH_ERR("Data align too large (%u). No room for data.\n", data_align);
+			break;
+		}
+	}
+
+	CU_ASSERT_FATAL(head_offset < buf_size);
+	CU_ASSERT_FATAL((head_offset + trailer_size) < buf_size);
+	CU_ASSERT_FATAL((head_offset % data_align) == 0);
+
+	param->buf.num_buf         = num_buf;
+	param->buf.buf_size        = buf_size;
+	param->buf.app_header_size = app_hdr_size;
+	param->buf.uarea_size      = uarea_size;
+}
+
+static void test_pool_ext_capa(void)
 {
 	odp_pool_ext_capability_t capa;
 	odp_pool_type_t type;
-	const odp_pool_type_t unsupported_types[] = {ODP_POOL_BUFFER, ODP_POOL_TIMEOUT,
+	const odp_pool_type_t unsupported_types[] = {ODP_POOL_TIMEOUT,
 						     ODP_POOL_EVENT_VECTOR,
-						     ODP_POOL_VECTOR, ODP_POOL_DMA_COMPL,
+#if ODP_DEPRECATED_API
+						     ODP_POOL_VECTOR,
+#endif
+						     ODP_POOL_DMA_COMPL,
 						     ODP_POOL_ML_COMPL};
 	const int num_types = ODPH_ARRAY_SIZE(unsupported_types);
 
@@ -1991,28 +2160,41 @@ static void test_packet_pool_ext_capa(void)
 		CU_ASSERT(capa.max_pools == 0);
 	}
 
+	type = ODP_POOL_BUFFER;
+
+	CU_ASSERT_FATAL(odp_pool_ext_capability(type, &capa) == 0);
+
+	CU_ASSERT(capa.type == type);
+
+	if (capa.max_pools > 0) {
+		CU_ASSERT(capa.min_cache_size <= capa.max_cache_size);
+		CU_ASSERT(capa.buf.max_num_buf > 0);
+		CU_ASSERT(capa.buf.max_buf_size > 0);
+		CU_ASSERT(capa.buf.min_mem_align > 0);
+		CU_ASSERT(TEST_CHECK_POW2(capa.buf.min_mem_align));
+		CU_ASSERT(capa.buf.min_buf_align > 0);
+		CU_ASSERT(capa.buf.min_data_align > 0);
+	}
+
 	type = ODP_POOL_PACKET;
 
 	CU_ASSERT_FATAL(odp_pool_ext_capability(type, &capa) == 0);
 
 	CU_ASSERT(capa.type == type);
 
-	/* External memory pools not supported */
-	if (capa.max_pools == 0)
-		return;
-
-	CU_ASSERT(capa.max_pools > 0);
-	CU_ASSERT(capa.min_cache_size <= capa.max_cache_size);
-	CU_ASSERT(capa.pkt.max_num_buf > 0);
-	CU_ASSERT(capa.pkt.max_buf_size > 0);
-	CU_ASSERT(capa.pkt.min_mem_align > 0);
-	CU_ASSERT(TEST_CHECK_POW2(capa.pkt.min_mem_align));
-	CU_ASSERT(capa.pkt.min_buf_align > 0);
-	CU_ASSERT(capa.pkt.min_head_align > 0);
-	CU_ASSERT(capa.pkt.max_headroom > 0);
-	CU_ASSERT(capa.pkt.max_headroom_size > 0);
-	CU_ASSERT(capa.pkt.max_headroom_size >= capa.pkt.max_headroom);
-	CU_ASSERT(capa.pkt.max_segs_per_pkt > 0);
+	if (capa.max_pools > 0) {
+		CU_ASSERT(capa.min_cache_size <= capa.max_cache_size);
+		CU_ASSERT(capa.pkt.max_num_buf > 0);
+		CU_ASSERT(capa.pkt.max_buf_size > 0);
+		CU_ASSERT(capa.pkt.min_mem_align > 0);
+		CU_ASSERT(TEST_CHECK_POW2(capa.pkt.min_mem_align));
+		CU_ASSERT(capa.pkt.min_buf_align > 0);
+		CU_ASSERT(capa.pkt.min_head_align > 0);
+		CU_ASSERT(capa.pkt.max_headroom > 0);
+		CU_ASSERT(capa.pkt.max_headroom_size > 0);
+		CU_ASSERT(capa.pkt.max_headroom_size >= capa.pkt.max_headroom);
+		CU_ASSERT(capa.pkt.max_segs_per_pkt > 0);
+	}
 }
 
 static void test_ext_param_init(uint8_t fill)
@@ -2038,29 +2220,23 @@ static void test_packet_pool_ext_param_init(void)
 	test_ext_param_init(0xff);
 }
 
-static void test_packet_pool_ext_create(void)
+static void pool_ext_create(const odp_pool_ext_param_t *param)
 {
 	odp_pool_t pool;
-	odp_pool_ext_param_t param;
 
-	pool_ext_init_packet_pool_param(&param);
-
-	pool = odp_pool_ext_create("pool_ext_0", &param);
+	pool = odp_pool_ext_create("pool_ext_0", param);
 
 	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
 
 	CU_ASSERT(odp_pool_destroy(pool) == 0);
 }
 
-static void test_packet_pool_ext_lookup(void)
+static void pool_ext_lookup(const odp_pool_ext_param_t *param)
 {
 	odp_pool_t pool, pool_1;
-	odp_pool_ext_param_t param;
 	const char *name = "pool_ext_0";
 
-	pool_ext_init_packet_pool_param(&param);
-
-	pool = odp_pool_ext_create(name, &param);
+	pool = odp_pool_ext_create(name, param);
 
 	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
 
@@ -2072,16 +2248,13 @@ static void test_packet_pool_ext_lookup(void)
 	CU_ASSERT(odp_pool_destroy(pool) == 0);
 }
 
-static void test_packet_pool_ext_info(void)
+static void pool_ext_info(const odp_pool_ext_param_t *param, odp_pool_type_t type)
 {
 	odp_pool_t pool;
-	odp_pool_ext_param_t param;
 	odp_pool_info_t info;
 	const char *name = "pool_ext_0";
 
-	pool_ext_init_packet_pool_param(&param);
-
-	pool = odp_pool_ext_create(name, &param);
+	pool = odp_pool_ext_create(name, param);
 
 	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
 
@@ -2089,23 +2262,23 @@ static void test_packet_pool_ext_info(void)
 	CU_ASSERT_FATAL(odp_pool_info(pool, &info) == 0);
 
 	CU_ASSERT(info.pool_ext);
+	CU_ASSERT(info.type == type);
+	CU_ASSERT(info.pool_ext_param.type == type);
 	CU_ASSERT(strncmp(name, info.name, strlen(name)) == 0);
 
 	CU_ASSERT(odp_pool_destroy(pool) == 0);
 }
 
-static void test_packet_pool_ext_long_name(void)
+static void pool_ext_long_name(const odp_pool_ext_param_t *param)
 {
 	odp_pool_t pool;
-	odp_pool_ext_param_t param;
 	odp_pool_info_t info;
 	char name[ODP_POOL_NAME_LEN];
 
 	memset(name, 'a', sizeof(name));
 	name[sizeof(name) - 1] = 0;
 
-	pool_ext_init_packet_pool_param(&param);
-	pool = odp_pool_ext_create(name, &param);
+	pool = odp_pool_ext_create(name, param);
 
 	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
 	CU_ASSERT_FATAL(pool == odp_pool_lookup(name));
@@ -2119,8 +2292,39 @@ static void test_packet_pool_ext_long_name(void)
 	CU_ASSERT(odp_pool_destroy(pool) == 0);
 }
 
-static odp_shm_t populate_pool(odp_pool_t pool, odp_pool_ext_capability_t *capa,
-			       void *buf[], uint32_t num, uint32_t buf_size)
+static void test_packet_pool_ext_create(void)
+{
+	odp_pool_ext_param_t param;
+
+	pool_ext_init_packet_pool_param(&param);
+	pool_ext_create(&param);
+}
+
+static void test_packet_pool_ext_lookup(void)
+{
+	odp_pool_ext_param_t param;
+
+	pool_ext_init_packet_pool_param(&param);
+	pool_ext_lookup(&param);
+}
+
+static void test_packet_pool_ext_info(void)
+{
+	odp_pool_ext_param_t param;
+
+	pool_ext_init_packet_pool_param(&param);
+	pool_ext_info(&param, ODP_POOL_PACKET);
+}
+
+static void test_packet_pool_ext_long_name(void)
+{
+	odp_pool_ext_param_t param;
+
+	pool_ext_init_packet_pool_param(&param);
+	pool_ext_long_name(&param);
+}
+
+static odp_shm_t populate_pool(odp_pool_t pool, const pool_ext_populate_t *populate)
 {
 	odp_shm_t shm;
 	uint8_t *buf_ptr;
@@ -2128,21 +2332,24 @@ static odp_shm_t populate_pool(odp_pool_t pool, odp_pool_ext_capability_t *capa,
 	uint32_t shm_size, mem_align;
 	uint32_t flags = 0;
 	uint32_t buf_align = EXT_BUF_ALIGN;
-	uint32_t min_align = capa->pkt.min_buf_align;
+	void **buf = populate->buf;
+	uint32_t num = populate->num_buf;
+	uint32_t buf_size = populate->buf_size;
+	uint32_t min_align = populate->min_align;
 
 	CU_ASSERT_FATAL(min_align > 0);
 
 	if (min_align > buf_align)
 		buf_align = min_align;
 
-	if (capa->pkt.buf_size_aligned) {
+	if (populate->size_aligned) {
 		buf_align = buf_size;
 		CU_ASSERT_FATAL((buf_size % min_align) == 0);
 	}
 
 	mem_align = buf_align;
-	if (capa->pkt.min_mem_align > mem_align)
-		mem_align = capa->pkt.min_mem_align;
+	if (populate->min_mem_align > mem_align)
+		mem_align = populate->min_mem_align;
 
 	/* Prepare to align every buffer */
 	shm_size = (num + 1) * (buf_size + buf_align);
@@ -2182,21 +2389,25 @@ static void test_packet_pool_ext_populate(void)
 	odp_pool_t pool;
 	odp_pool_ext_param_t param;
 	odp_pool_ext_capability_t capa;
-	uint32_t buf_size, num_buf;
+	pool_ext_populate_t populate;
 	void *buf[EXT_NUM_BUF];
 
 	CU_ASSERT_FATAL(odp_pool_ext_capability(ODP_POOL_PACKET, &capa) == 0);
 
 	pool_ext_init_packet_pool_param(&param);
-	num_buf  = param.pkt.num_buf;
-	buf_size = param.pkt.buf_size;
+	populate.buf           = buf;
+	populate.num_buf       = param.pkt.num_buf;
+	populate.buf_size      = param.pkt.buf_size;
+	populate.min_align     = capa.pkt.min_buf_align;
+	populate.min_mem_align = capa.pkt.min_mem_align;
+	populate.size_aligned  = capa.pkt.buf_size_aligned;
 
 	CU_ASSERT_FATAL(capa.pkt.min_head_align > 0);
 
 	pool = odp_pool_ext_create("pool_ext_0", &param);
 	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
 
-	shm = populate_pool(pool, &capa, buf, num_buf, buf_size);
+	shm = populate_pool(pool, &populate);
 	CU_ASSERT_FATAL(shm != ODP_SHM_INVALID);
 
 	CU_ASSERT(odp_pool_destroy(pool) == 0);
@@ -2235,6 +2446,7 @@ static void packet_pool_ext_alloc(int len_test)
 	uint32_t hr, tr, uarea_size, max_payload, buf_data_size, app_hdr_size;
 	int num_seg;
 	uint8_t *app_hdr;
+	pool_ext_populate_t populate;
 	void *buf[EXT_NUM_BUF];
 	odp_packet_t pkt[EXT_NUM_BUF];
 	uint32_t seg_len = 0;
@@ -2246,10 +2458,17 @@ static void packet_pool_ext_alloc(int len_test)
 	buf_size   = param.pkt.buf_size;
 	uarea_size = param.pkt.uarea_size;
 
+	populate.buf           = buf;
+	populate.num_buf       = num_buf;
+	populate.buf_size      = buf_size;
+	populate.min_align     = capa.pkt.min_buf_align;
+	populate.min_mem_align = capa.pkt.min_mem_align;
+	populate.size_aligned  = capa.pkt.buf_size_aligned;
+
 	pool = odp_pool_ext_create("pool_ext_0", &param);
 	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
 
-	shm = populate_pool(pool, &capa, buf, num_buf, buf_size);
+	shm = populate_pool(pool, &populate);
 	CU_ASSERT_FATAL(shm != ODP_SHM_INVALID);
 
 	app_hdr_size = param.pkt.app_header_size;
@@ -2346,6 +2565,7 @@ static void test_packet_pool_ext_uarea_init(void)
 	uarea_init_t data;
 	odp_shm_t shm;
 	uint8_t *uarea;
+	pool_ext_populate_t populate;
 
 	CU_ASSERT_FATAL(odp_pool_ext_capability(ODP_POOL_PACKET, &capa) == 0);
 
@@ -2363,7 +2583,14 @@ static void test_packet_pool_ext_uarea_init(void)
 	void *buf[num];
 	odp_packet_t pkts[num];
 
-	shm = populate_pool(pool, &capa, buf, num, param.pkt.buf_size);
+	populate.buf           = buf;
+	populate.num_buf       = num;
+	populate.buf_size      = param.pkt.buf_size;
+	populate.min_align     = capa.pkt.min_buf_align;
+	populate.min_mem_align = capa.pkt.min_mem_align;
+	populate.size_aligned  = capa.pkt.buf_size_aligned;
+
+	shm = populate_pool(pool, &populate);
 
 	CU_ASSERT_FATAL(shm != ODP_SHM_INVALID);
 	CU_ASSERT(data.count == num);
@@ -2412,6 +2639,7 @@ static void test_packet_pool_ext_disassemble(void)
 	uint32_t pkt_len, head_offset, trailer_size, headroom, max_headroom;
 	uint32_t hr, max_payload, buf_data_size;
 	uint32_t num_seg;
+	pool_ext_populate_t populate;
 	void *buf[EXT_NUM_BUF];
 	odp_packet_t pkt_tbl[EXT_NUM_BUF];
 
@@ -2422,10 +2650,17 @@ static void test_packet_pool_ext_disassemble(void)
 	num_buf    = param.pkt.num_buf;
 	buf_size   = param.pkt.buf_size;
 
+	populate.buf           = buf;
+	populate.num_buf       = num_buf;
+	populate.buf_size      = buf_size;
+	populate.min_align     = capa.pkt.min_buf_align;
+	populate.min_mem_align = capa.pkt.min_mem_align;
+	populate.size_aligned  = capa.pkt.buf_size_aligned;
+
 	pool = odp_pool_ext_create("pool_ext_0", &param);
 	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
 
-	shm = populate_pool(pool, &capa, buf, num_buf, buf_size);
+	shm = populate_pool(pool, &populate);
 	CU_ASSERT_FATAL(shm != ODP_SHM_INVALID);
 
 	head_offset  = capa.pkt.odp_header_size + param.pkt.app_header_size;
@@ -2522,6 +2757,299 @@ static void test_packet_pool_ext_disassemble(void)
 	CU_ASSERT(odp_shm_free(shm) == 0);
 }
 
+static void test_ext_buf_param_init(uint8_t fill)
+{
+	odp_pool_ext_param_t param;
+
+	memset(&param, fill, sizeof(param));
+	odp_pool_ext_param_init(ODP_POOL_BUFFER, &param);
+
+	CU_ASSERT(param.type == ODP_POOL_BUFFER);
+	CU_ASSERT(param.uarea_init.init_fn == NULL);
+	CU_ASSERT(param.uarea_init.args == NULL);
+	CU_ASSERT(param.cache_size >= global_pool_ext_buf_capa.min_cache_size &&
+		  param.cache_size <= global_pool_ext_buf_capa.max_cache_size);
+	CU_ASSERT(param.stats.all == 0);
+	CU_ASSERT(param.buf.app_header_size == 0);
+	CU_ASSERT(param.buf.uarea_size == 0);
+}
+
+static void test_buffer_pool_ext_param_init(void)
+{
+	test_ext_buf_param_init(0);
+	test_ext_buf_param_init(0xff);
+}
+
+static void test_buffer_pool_ext_create(void)
+{
+	odp_pool_ext_param_t param;
+
+	pool_ext_init_buffer_pool_param(&param);
+	pool_ext_create(&param);
+}
+
+static void test_buffer_pool_ext_lookup(void)
+{
+	odp_pool_ext_param_t param;
+
+	pool_ext_init_buffer_pool_param(&param);
+	pool_ext_lookup(&param);
+}
+
+static void test_buffer_pool_ext_info(void)
+{
+	odp_pool_ext_param_t param;
+
+	pool_ext_init_buffer_pool_param(&param);
+	pool_ext_info(&param, ODP_POOL_BUFFER);
+}
+
+static void test_buffer_pool_ext_long_name(void)
+{
+	odp_pool_ext_param_t param;
+
+	pool_ext_init_buffer_pool_param(&param);
+	pool_ext_long_name(&param);
+}
+
+static void test_buffer_pool_ext_populate(void)
+{
+	odp_shm_t shm;
+	odp_pool_t pool;
+	odp_pool_ext_param_t param;
+	odp_pool_ext_capability_t capa;
+	pool_ext_populate_t populate;
+	void *buf[EXT_NUM_BUF];
+
+	CU_ASSERT_FATAL(odp_pool_ext_capability(ODP_POOL_BUFFER, &capa) == 0);
+
+	pool_ext_init_buffer_pool_param(&param);
+
+	populate.buf           = buf;
+	populate.num_buf       = param.buf.num_buf;
+	populate.buf_size      = param.buf.buf_size;
+	populate.min_align     = capa.buf.min_buf_align;
+	populate.min_mem_align = capa.buf.min_mem_align;
+	populate.size_aligned  = capa.buf.buf_size_aligned;
+
+	CU_ASSERT_FATAL(capa.buf.min_data_align > 0);
+
+	pool = odp_pool_ext_create("pool_ext_0", &param);
+	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
+
+	shm = populate_pool(pool, &populate);
+	CU_ASSERT_FATAL(shm != ODP_SHM_INVALID);
+
+	CU_ASSERT(odp_pool_destroy(pool) == 0);
+	CU_ASSERT(odp_shm_free(shm) == 0);
+}
+
+static uint32_t find_ext_buf(odp_buffer_t buffer, void *buf[], uint32_t num, uint32_t head_offset)
+{
+	uint32_t i;
+	uint8_t *ptr;
+	uint8_t *addr = odp_buffer_addr(buffer);
+
+	for (i = 0; i < num; i++) {
+		ptr  = buf[i];
+		ptr += head_offset;
+
+		if (addr == ptr)
+			break;
+	}
+
+	return i;
+}
+
+static void test_buffer_pool_ext_alloc(void)
+{
+	odp_shm_t shm;
+	odp_pool_t pool;
+	odp_pool_ext_param_t param;
+	odp_pool_ext_capability_t capa;
+	uint32_t i, j, buf_size, num_buf, num_alloc, buf_index;
+	uint32_t head_offset, trailer_size, uarea_size, buf_data_size, app_hdr_size;
+	uint8_t *app_hdr;
+	pool_ext_populate_t populate;
+	void *buf[EXT_NUM_BUF];
+	odp_buffer_t buffer[EXT_NUM_BUF];
+
+	CU_ASSERT_FATAL(odp_pool_ext_capability(ODP_POOL_BUFFER, &capa) == 0);
+
+	pool_ext_init_buffer_pool_param(&param);
+	num_buf    = param.buf.num_buf;
+	buf_size   = param.buf.buf_size;
+	uarea_size = param.buf.uarea_size;
+
+	populate.buf           = buf;
+	populate.num_buf       = num_buf;
+	populate.buf_size      = buf_size;
+	populate.min_align     = capa.buf.min_buf_align;
+	populate.min_mem_align = capa.buf.min_mem_align;
+	populate.size_aligned  = capa.buf.buf_size_aligned;
+
+	pool = odp_pool_ext_create("pool_ext_0", &param);
+	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
+
+	shm = populate_pool(pool, &populate);
+	CU_ASSERT_FATAL(shm != ODP_SHM_INVALID);
+
+	app_hdr_size  = param.buf.app_header_size;
+	head_offset   = capa.buf.odp_header_size + app_hdr_size;
+	trailer_size  = capa.buf.odp_trailer_size;
+	buf_data_size = buf_size - head_offset - trailer_size;
+
+	for (i = 0; i < num_buf; i++) {
+		buffer[i] = odp_buffer_alloc(pool);
+		CU_ASSERT(buffer[i] != ODP_BUFFER_INVALID);
+		if (buffer[i] == ODP_BUFFER_INVALID)
+			break;
+
+		CU_ASSERT(odp_buffer_is_valid(buffer[i]) == 1);
+		CU_ASSERT(odp_event_is_valid(odp_buffer_to_event(buffer[i])) == 1);
+		CU_ASSERT(odp_buffer_pool(buffer[i]) == pool);
+		CU_ASSERT(odp_buffer_addr(buffer[i]) != NULL);
+		CU_ASSERT((uintptr_t)odp_buffer_addr(buffer[i]) % capa.buf.min_data_align == 0);
+		CU_ASSERT(odp_buffer_size(buffer[i]) == buf_data_size);
+		buf_index = find_ext_buf(buffer[i], buf, num_buf, head_offset);
+		CU_ASSERT(buf_index < num_buf);
+
+		if (uarea_size)
+			CU_ASSERT(odp_buffer_user_area(buffer[i]) != NULL);
+
+		/* Check that application header content has not changed */
+		app_hdr = (uint8_t *)odp_buffer_addr(buffer[i]) - app_hdr_size;
+		for (j = 0; j < app_hdr_size; j++)
+			CU_ASSERT(app_hdr[j] == MAGIC_U8);
+	}
+
+	num_alloc = i;
+	CU_ASSERT(num_alloc == num_buf);
+
+	/* Pool is now empty */
+	CU_ASSERT(odp_buffer_alloc(pool) == ODP_BUFFER_INVALID);
+
+	for (i = 0; i < num_alloc; i++)
+		odp_buffer_free(buffer[i]);
+
+	CU_ASSERT(odp_pool_destroy(pool) == 0);
+	CU_ASSERT(odp_shm_free(shm) == 0);
+}
+
+static void test_buffer_pool_ext_from_addr(void)
+{
+	odp_shm_t shm;
+	odp_pool_t pool;
+	odp_pool_ext_param_t param;
+	odp_pool_ext_capability_t capa;
+	pool_ext_populate_t populate;
+	int i, num_alloc;
+	uint32_t num_buf;
+	void *buf[EXT_NUM_BUF];
+	void *addr[EXT_NUM_BUF];
+	odp_buffer_t buffer[EXT_NUM_BUF];
+
+	CU_ASSERT_FATAL(odp_pool_ext_capability(ODP_POOL_BUFFER, &capa) == 0);
+
+	pool_ext_init_buffer_pool_param(&param);
+	num_buf = param.buf.num_buf;
+
+	populate.buf           = buf;
+	populate.num_buf       = num_buf;
+	populate.buf_size      = param.buf.buf_size;
+	populate.min_align     = capa.buf.min_buf_align;
+	populate.min_mem_align = capa.buf.min_mem_align;
+	populate.size_aligned  = capa.buf.buf_size_aligned;
+
+	pool = odp_pool_ext_create("pool_ext_0", &param);
+	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
+
+	shm = populate_pool(pool, &populate);
+	CU_ASSERT_FATAL(shm != ODP_SHM_INVALID);
+
+	num_alloc = odp_buffer_alloc_multi(pool, buffer, (int)num_buf);
+	CU_ASSERT_FATAL(num_alloc > 0);
+
+	for (i = 0; i < num_alloc; i++) {
+		addr[i] = odp_buffer_addr(buffer[i]);
+		CU_ASSERT(addr[i] != NULL);
+	}
+
+	/* Buffer addresses alone are enough to get the handles back */
+	for (i = 0; i < num_alloc; i++) {
+		odp_buffer_t buf_hdl = odp_buffer_from_addr(pool, addr[i]);
+
+		CU_ASSERT(odp_buffer_to_u64(buf_hdl) == odp_buffer_to_u64(buffer[i]));
+		CU_ASSERT(odp_buffer_is_valid(buf_hdl) == 1);
+		CU_ASSERT(odp_buffer_addr(buf_hdl) == addr[i]);
+		CU_ASSERT(odp_buffer_pool(buf_hdl) == pool);
+	}
+
+	odp_buffer_free_multi(buffer, num_alloc);
+
+	CU_ASSERT(odp_pool_destroy(pool) == 0);
+	CU_ASSERT(odp_shm_free(shm) == 0);
+}
+
+static void test_buffer_pool_ext_uarea_init(void)
+{
+	odp_pool_ext_capability_t capa;
+	odp_pool_ext_param_t param;
+	uint32_t num = ELEM_NUM, i;
+	odp_pool_t pool;
+	uarea_init_t data;
+	odp_shm_t shm;
+	uint8_t *uarea;
+	pool_ext_populate_t populate;
+
+	CU_ASSERT_FATAL(odp_pool_ext_capability(ODP_POOL_BUFFER, &capa) == 0);
+
+	memset(&data, 0, sizeof(uarea_init_t));
+	pool_ext_init_buffer_pool_param(&param);
+	param.uarea_init.init_fn = init_event_uarea;
+	param.uarea_init.args = &data;
+	num = ODPH_MIN(num, param.buf.num_buf);
+	param.buf.num_buf = num;
+	param.buf.uarea_size = 1;
+	pool = odp_pool_ext_create(NULL, &param);
+
+	CU_ASSERT_FATAL(pool != ODP_POOL_INVALID);
+
+	void *buf[num];
+	odp_buffer_t buffer[num];
+
+	populate.buf           = buf;
+	populate.num_buf       = num;
+	populate.buf_size      = param.buf.buf_size;
+	populate.min_align     = capa.buf.min_buf_align;
+	populate.min_mem_align = capa.buf.min_mem_align;
+	populate.size_aligned  = capa.buf.buf_size_aligned;
+
+	shm = populate_pool(pool, &populate);
+
+	CU_ASSERT_FATAL(shm != ODP_SHM_INVALID);
+	CU_ASSERT(data.count == num);
+
+	for (i = 0; i < num; i++) {
+		CU_ASSERT(data.mark[i] == 1);
+
+		buffer[i] = odp_buffer_alloc(pool);
+
+		CU_ASSERT(buffer[i] != ODP_BUFFER_INVALID);
+
+		if (buffer[i] == ODP_BUFFER_INVALID)
+			break;
+
+		uarea = odp_buffer_user_area(buffer[i]);
+
+		CU_ASSERT(*uarea == UAREA);
+	}
+
+	odp_buffer_free_multi(buffer, i);
+	odp_pool_destroy(pool);
+	odp_shm_free(shm);
+}
+
 static int pool_suite_init(void)
 {
 	memset(&global_pool_capa, 0, sizeof(odp_pool_capability_t));
@@ -2540,6 +3068,7 @@ static int pool_suite_init(void)
 static int pool_ext_suite_init(void)
 {
 	memset(&global_pool_ext_capa, 0, sizeof(odp_pool_ext_capability_t));
+	memset(&global_pool_ext_buf_capa, 0, sizeof(odp_pool_ext_capability_t));
 
 	if (odp_pool_ext_capability(ODP_POOL_PACKET, &global_pool_ext_capa)) {
 		ODPH_ERR("Pool ext capa failed in suite init\n");
@@ -2548,6 +3077,16 @@ static int pool_ext_suite_init(void)
 
 	if (global_pool_ext_capa.type != ODP_POOL_PACKET) {
 		ODPH_ERR("Bad type from pool ext capa in suite init\n");
+		return -1;
+	}
+
+	if (odp_pool_ext_capability(ODP_POOL_BUFFER, &global_pool_ext_buf_capa)) {
+		ODPH_ERR("Buffer pool ext capa failed in suite init\n");
+		return -1;
+	}
+
+	if (global_pool_ext_buf_capa.type != ODP_POOL_BUFFER) {
+		ODPH_ERR("Bad type from buffer pool ext capa in suite init\n");
 		return -1;
 	}
 
@@ -2566,6 +3105,24 @@ static int check_pool_ext_uarea_init_support(void)
 {
 	if (global_pool_ext_capa.max_pools == 0 || !global_pool_ext_capa.pkt.uarea_persistence ||
 	    global_pool_ext_capa.pkt.max_uarea_size == 0)
+		return ODP_TEST_INACTIVE;
+
+	return ODP_TEST_ACTIVE;
+}
+
+static int check_pool_ext_buf_support(void)
+{
+	if (global_pool_ext_buf_capa.max_pools == 0)
+		return ODP_TEST_INACTIVE;
+
+	return ODP_TEST_ACTIVE;
+}
+
+static int check_pool_ext_buf_uarea_init_support(void)
+{
+	if (global_pool_ext_buf_capa.max_pools == 0 ||
+	    !global_pool_ext_buf_capa.buf.uarea_persistence ||
+	    global_pool_ext_buf_capa.buf.max_uarea_size == 0)
 		return ODP_TEST_INACTIVE;
 
 	return ODP_TEST_ACTIVE;
@@ -2600,11 +3157,9 @@ odp_testinfo_t pool_suite[] = {
 	ODP_TEST_INFO(pool_test_create_destroy_buffer),
 	ODP_TEST_INFO(pool_test_create_destroy_packet),
 	ODP_TEST_INFO(pool_test_create_destroy_timeout),
-	ODP_TEST_INFO(pool_test_create_destroy_packet_vector),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_create_destroy_event_vector, check_event_vector),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_buffer_uarea_init, pool_check_buffer_uarea_init),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_packet_uarea_init, pool_check_packet_uarea_init),
-	ODP_TEST_INFO_CONDITIONAL(pool_test_packet_vector_uarea_init, check_pkt_vector_uarea_init),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_event_vector_uarea_init, check_ev_vector_uarea_init),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_timeout_uarea_init, pool_check_timeout_uarea_init),
 	ODP_TEST_INFO(pool_test_lookup_info_print),
@@ -2612,20 +3167,18 @@ odp_testinfo_t pool_suite[] = {
 	ODP_TEST_INFO(pool_test_same_name_buf),
 	ODP_TEST_INFO(pool_test_same_name_pkt),
 	ODP_TEST_INFO(pool_test_same_name_tmo),
-	ODP_TEST_INFO(pool_test_same_name_packet_vector),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_same_name_event_vector, check_event_vector_2_pools),
 	ODP_TEST_INFO(pool_test_alloc_buffer),
 	ODP_TEST_INFO(pool_test_alloc_buffer_min_cache),
 	ODP_TEST_INFO(pool_test_alloc_buffer_max_cache),
-	ODP_TEST_INFO(pool_test_alloc_packet_vector),
-	ODP_TEST_INFO(pool_test_alloc_packet_vector_min_cache),
-	ODP_TEST_INFO(pool_test_alloc_packet_vector_max_cache),
+	ODP_TEST_INFO(pool_test_alloc_buffer_align),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_alloc_event_vector,           check_event_vector),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_alloc_event_vector_min_cache, check_event_vector),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_alloc_event_vector_max_cache, check_event_vector),
 	ODP_TEST_INFO(pool_test_alloc_packet),
 	ODP_TEST_INFO(pool_test_alloc_packet_min_cache),
 	ODP_TEST_INFO(pool_test_alloc_packet_max_cache),
+	ODP_TEST_INFO(pool_test_alloc_packet_align),
 	ODP_TEST_INFO(pool_test_alloc_packet_subparam),
 	ODP_TEST_INFO(pool_test_alloc_timeout),
 	ODP_TEST_INFO(pool_test_alloc_timeout_min_cache),
@@ -2634,7 +3187,6 @@ odp_testinfo_t pool_suite[] = {
 	ODP_TEST_INFO(pool_test_info_data_range),
 	ODP_TEST_INFO(pool_test_buf_max_num),
 	ODP_TEST_INFO(pool_test_pkt_max_num),
-	ODP_TEST_INFO(pool_test_packet_vector_max_num),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_event_vector_max_num, check_event_vector),
 	ODP_TEST_INFO(pool_test_pkt_seg_len),
 	ODP_TEST_INFO(pool_test_tmo_max_num),
@@ -2645,17 +3197,26 @@ odp_testinfo_t pool_suite[] = {
 				  pool_check_buffer_pool_statistics),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_packet_pool_statistics,
 				  pool_check_packet_pool_statistics),
-	ODP_TEST_INFO_CONDITIONAL(pool_test_packet_vector_pool_statistics,
-				  pool_check_packet_vector_pool_statistics),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_event_vector_pool_statistics,
 				  pool_check_event_vector_pool_statistics),
 	ODP_TEST_INFO_CONDITIONAL(pool_test_timeout_pool_statistics,
 				  pool_check_timeout_pool_statistics),
+#if ODP_DEPRECATED_API
+	ODP_TEST_INFO(pool_test_create_destroy_packet_vector),
+	ODP_TEST_INFO_CONDITIONAL(pool_test_packet_vector_uarea_init, check_pkt_vector_uarea_init),
+	ODP_TEST_INFO(pool_test_same_name_packet_vector),
+	ODP_TEST_INFO(pool_test_alloc_packet_vector),
+	ODP_TEST_INFO(pool_test_alloc_packet_vector_min_cache),
+	ODP_TEST_INFO(pool_test_alloc_packet_vector_max_cache),
+	ODP_TEST_INFO(pool_test_packet_vector_max_num),
+	ODP_TEST_INFO_CONDITIONAL(pool_test_packet_vector_pool_statistics,
+				  pool_check_packet_vector_pool_statistics),
+#endif
 	ODP_TEST_INFO_NULL,
 };
 
 odp_testinfo_t pool_ext_suite[] = {
-	ODP_TEST_INFO(test_packet_pool_ext_capa),
+	ODP_TEST_INFO(test_pool_ext_capa),
 	ODP_TEST_INFO_CONDITIONAL(test_packet_pool_ext_param_init, check_pool_ext_support),
 	ODP_TEST_INFO_CONDITIONAL(test_packet_pool_ext_create, check_pool_ext_support),
 	ODP_TEST_INFO_CONDITIONAL(test_packet_pool_ext_lookup, check_pool_ext_support),
@@ -2668,6 +3229,16 @@ odp_testinfo_t pool_ext_suite[] = {
 	ODP_TEST_INFO_CONDITIONAL(test_packet_pool_ext_alloc_max, check_pool_ext_support),
 	ODP_TEST_INFO_CONDITIONAL(test_packet_pool_ext_alloc_seg, check_pool_ext_segment_support),
 	ODP_TEST_INFO_CONDITIONAL(test_packet_pool_ext_disassemble, check_pool_ext_segment_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_param_init, check_pool_ext_buf_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_create, check_pool_ext_buf_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_lookup, check_pool_ext_buf_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_info, check_pool_ext_buf_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_long_name, check_pool_ext_buf_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_populate, check_pool_ext_buf_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_alloc, check_pool_ext_buf_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_from_addr, check_pool_ext_buf_support),
+	ODP_TEST_INFO_CONDITIONAL(test_buffer_pool_ext_uarea_init,
+				  check_pool_ext_buf_uarea_init_support),
 	ODP_TEST_INFO_NULL,
 };
 

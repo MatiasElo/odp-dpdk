@@ -33,6 +33,10 @@
 
 #define PROG_NAME "odp_sysinfo"
 
+/* Crypto API cannot support more than this many algorithms */
+#define MAX_NUM_CIPHERS 64
+#define MAX_NUM_AUTHS   64
+
 typedef struct {
 	char name[MAX_NAME_LEN];
 	odp_pktio_capability_t capa;
@@ -162,148 +166,16 @@ static const char *cpu_arch_isa(odp_system_info_t *sysinfo, int isa_sw)
 
 static const char *cipher_alg_name(odp_cipher_alg_t cipher)
 {
-	switch (cipher) {
-	case ODP_CIPHER_ALG_NULL:
-		return "null";
-	case ODP_CIPHER_ALG_DES:
-		return "des";
-	case ODP_CIPHER_ALG_3DES_CBC:
-		return "3des_cbc";
-	case ODP_CIPHER_ALG_3DES_ECB:
-		return "3des_ecb";
-	case ODP_CIPHER_ALG_AES_CBC:
-		return "aes_cbc";
-	case ODP_CIPHER_ALG_AES_CTR:
-		return "aes_ctr";
-	case ODP_CIPHER_ALG_AES_ECB:
-		return "aes_ecb";
-	case ODP_CIPHER_ALG_AES_CFB128:
-		return "aes_cfb128";
-	case ODP_CIPHER_ALG_AES_XTS:
-		return "aes_xts";
-	case ODP_CIPHER_ALG_AES_GCM:
-		return "aes_gcm";
-	case ODP_CIPHER_ALG_AES_CCM:
-		return "aes_ccm";
-	case ODP_CIPHER_ALG_CHACHA20_POLY1305:
-		return "chacha20_poly1305";
-	case ODP_CIPHER_ALG_KASUMI_F8:
-		return "kasumi_f8";
-	case ODP_CIPHER_ALG_SNOW3G_UEA2:
-		return "snow3g_uea2";
-	case ODP_CIPHER_ALG_SNOW5G_NEA4:
-		return "snow5g_nea4";
-	case ODP_CIPHER_ALG_AES_EEA2:
-		return "aes_eea2";
-	case ODP_CIPHER_ALG_ZUC_EEA3:
-		return "zuc_eea3";
-	case ODP_CIPHER_ALG_ZUC_NEA6:
-		return "zuc_nea6";
-	case ODP_CIPHER_ALG_SNOW_V:
-		return "snow_v";
-	case ODP_CIPHER_ALG_SNOW_V_GCM:
-		return "snow_v_gcm";
-	case ODP_CIPHER_ALG_SM4_ECB:
-		return "sm4_ecb";
-	case ODP_CIPHER_ALG_SM4_CBC:
-		return "sm4_cbc";
-	case ODP_CIPHER_ALG_SM4_CTR:
-		return "sm4_ctr";
-	case ODP_CIPHER_ALG_SM4_GCM:
-		return "sm4_gcm";
-	case ODP_CIPHER_ALG_SM4_CCM:
-		return "sm4_ccm";
-	default:
-		return "Unknown";
-	}
+	const char *name = odph_cipher_alg_to_str(cipher);
+
+	return name ? name : "Unknown";
 }
 
 static const char *auth_alg_name(odp_auth_alg_t auth)
 {
-	switch (auth) {
-	case ODP_AUTH_ALG_NULL:
-		return "null";
-	case ODP_AUTH_ALG_MD5_HMAC:
-		return "md5_hmac";
-	case ODP_AUTH_ALG_SHA1_HMAC:
-		return "sha1_hmac";
-	case ODP_AUTH_ALG_SHA224_HMAC:
-		return "sha224_hmac";
-	case ODP_AUTH_ALG_SHA256_HMAC:
-		return "sha256_hmac";
-	case ODP_AUTH_ALG_SHA384_HMAC:
-		return "sha384_hmac";
-	case ODP_AUTH_ALG_SHA512_HMAC:
-		return "sha512_hmac";
-	case ODP_AUTH_ALG_SHA3_224_HMAC:
-		return "sha3_224_hmac";
-	case ODP_AUTH_ALG_SHA3_256_HMAC:
-		return "sha3_256_hmac";
-	case ODP_AUTH_ALG_SHA3_384_HMAC:
-		return "sha3_384_hmac";
-	case ODP_AUTH_ALG_SHA3_512_HMAC:
-		return "sha3_512_hmac";
-	case ODP_AUTH_ALG_AES_GCM:
-		return "aes_gcm";
-	case ODP_AUTH_ALG_AES_GMAC:
-		return "aes_gmac";
-	case ODP_AUTH_ALG_AES_CCM:
-		return "aes_ccm";
-	case ODP_AUTH_ALG_AES_CMAC:
-		return "aes_cmac";
-	case ODP_AUTH_ALG_AES_XCBC_MAC:
-		return "aes_xcbc_mac";
-	case ODP_AUTH_ALG_CHACHA20_POLY1305:
-		return "chacha20_poly1305";
-	case ODP_AUTH_ALG_KASUMI_F9:
-		return "kasumi_f9";
-	case ODP_AUTH_ALG_SNOW3G_UIA2:
-		return "snow3g_uia2";
-	case ODP_AUTH_ALG_SNOW5G_NIA4:
-		return "snow5g_nia4";
-	case ODP_AUTH_ALG_AES_EIA2:
-		return "aes_eia2";
-	case ODP_AUTH_ALG_ZUC_EIA3:
-		return "zuc_eia3";
-	case ODP_AUTH_ALG_ZUC_NIA6:
-		return "zuc_nia6";
-	case ODP_AUTH_ALG_SNOW_V_GCM:
-		return "snow_v_gcm";
-	case ODP_AUTH_ALG_SNOW_V_GMAC:
-		return "snow_v_gmac";
-	case ODP_AUTH_ALG_SM3_HMAC:
-		return "sm3_hmac";
-	case ODP_AUTH_ALG_SM4_GCM:
-		return "sm4_gcm";
-	case ODP_AUTH_ALG_SM4_GMAC:
-		return "sm4_gmac";
-	case ODP_AUTH_ALG_SM4_CCM:
-		return "sm4_ccm";
-	case ODP_AUTH_ALG_MD5:
-		return "md5";
-	case ODP_AUTH_ALG_SHA1:
-		return "sha1";
-	case ODP_AUTH_ALG_SHA224:
-		return "sha224";
-	case ODP_AUTH_ALG_SHA256:
-		return "sha256";
-	case ODP_AUTH_ALG_SHA384:
-		return "sha384";
-	case ODP_AUTH_ALG_SHA512:
-		return "sha512";
-	case ODP_AUTH_ALG_SHA3_224:
-		return "sha3_224";
-	case ODP_AUTH_ALG_SHA3_256:
-		return "sha3_256";
-	case ODP_AUTH_ALG_SHA3_384:
-		return "sha3_384";
-	case ODP_AUTH_ALG_SHA3_512:
-		return "sha3_512";
-	case ODP_AUTH_ALG_SM3:
-		return "sm3";
-	default:
-		return "Unknown";
-	}
+	const char *name = odph_auth_alg_to_str(auth);
+
+	return name ? name : "Unknown";
 }
 
 typedef void (*cipher_op_t)(odp_cipher_alg_t alg);
@@ -311,140 +183,16 @@ typedef void (*auth_op_t)(odp_auth_alg_t alg);
 
 static void foreach_cipher(odp_crypto_cipher_algos_t ciphers, cipher_op_t op)
 {
-	if (ciphers.bit.null)
-		op(ODP_CIPHER_ALG_NULL);
-	if (ciphers.bit.des)
-		op(ODP_CIPHER_ALG_DES);
-	if (ciphers.bit.trides_cbc)
-		op(ODP_CIPHER_ALG_3DES_CBC);
-	if (ciphers.bit.trides_ecb)
-		op(ODP_CIPHER_ALG_3DES_ECB);
-	if (ciphers.bit.aes_cbc)
-		op(ODP_CIPHER_ALG_AES_CBC);
-	if (ciphers.bit.aes_ctr)
-		op(ODP_CIPHER_ALG_AES_CTR);
-	if (ciphers.bit.aes_ecb)
-		op(ODP_CIPHER_ALG_AES_ECB);
-	if (ciphers.bit.aes_cfb128)
-		op(ODP_CIPHER_ALG_AES_CFB128);
-	if (ciphers.bit.aes_xts)
-		op(ODP_CIPHER_ALG_AES_XTS);
-	if (ciphers.bit.aes_gcm)
-		op(ODP_CIPHER_ALG_AES_GCM);
-	if (ciphers.bit.aes_ccm)
-		op(ODP_CIPHER_ALG_AES_CCM);
-	if (ciphers.bit.chacha20_poly1305)
-		op(ODP_CIPHER_ALG_CHACHA20_POLY1305);
-	if (ciphers.bit.kasumi_f8)
-		op(ODP_CIPHER_ALG_KASUMI_F8);
-	if (ciphers.bit.snow3g_uea2)
-		op(ODP_CIPHER_ALG_SNOW3G_UEA2);
-	if (ciphers.bit.snow5g_nea4)
-		op(ODP_CIPHER_ALG_SNOW5G_NEA4);
-	if (ciphers.bit.aes_eea2)
-		op(ODP_CIPHER_ALG_AES_EEA2);
-	if (ciphers.bit.zuc_eea3)
-		op(ODP_CIPHER_ALG_ZUC_EEA3);
-	if (ciphers.bit.zuc_nea6)
-		op(ODP_CIPHER_ALG_ZUC_NEA6);
-	if (ciphers.bit.snow_v)
-		op(ODP_CIPHER_ALG_SNOW_V);
-	if (ciphers.bit.snow_v_gcm)
-		op(ODP_CIPHER_ALG_SNOW_V_GCM);
-	if (ciphers.bit.sm4_ecb)
-		op(ODP_CIPHER_ALG_SM4_ECB);
-	if (ciphers.bit.sm4_cbc)
-		op(ODP_CIPHER_ALG_SM4_CBC);
-	if (ciphers.bit.sm4_ctr)
-		op(ODP_CIPHER_ALG_SM4_CTR);
-	if (ciphers.bit.sm4_gcm)
-		op(ODP_CIPHER_ALG_SM4_GCM);
-	if (ciphers.bit.sm4_ccm)
-		op(ODP_CIPHER_ALG_SM4_CCM);
+	for (int alg = 0; alg < MAX_NUM_CIPHERS; alg++)
+		if (odph_cipher_supported(&ciphers, alg))
+			op(alg);
 }
 
 static void foreach_auth(odp_crypto_auth_algos_t auths, auth_op_t op)
 {
-	if (auths.bit.null)
-		op(ODP_AUTH_ALG_NULL);
-	if (auths.bit.md5_hmac)
-		op(ODP_AUTH_ALG_MD5_HMAC);
-	if (auths.bit.sha1_hmac)
-		op(ODP_AUTH_ALG_SHA1_HMAC);
-	if (auths.bit.sha224_hmac)
-		op(ODP_AUTH_ALG_SHA224_HMAC);
-	if (auths.bit.sha256_hmac)
-		op(ODP_AUTH_ALG_SHA256_HMAC);
-	if (auths.bit.sha384_hmac)
-		op(ODP_AUTH_ALG_SHA384_HMAC);
-	if (auths.bit.sha512_hmac)
-		op(ODP_AUTH_ALG_SHA512_HMAC);
-	if (auths.bit.sha3_224_hmac)
-		op(ODP_AUTH_ALG_SHA3_224_HMAC);
-	if (auths.bit.sha3_256_hmac)
-		op(ODP_AUTH_ALG_SHA3_256_HMAC);
-	if (auths.bit.sha3_384_hmac)
-		op(ODP_AUTH_ALG_SHA3_384_HMAC);
-	if (auths.bit.sha3_512_hmac)
-		op(ODP_AUTH_ALG_SHA3_512_HMAC);
-	if (auths.bit.aes_gcm)
-		op(ODP_AUTH_ALG_AES_GCM);
-	if (auths.bit.aes_gmac)
-		op(ODP_AUTH_ALG_AES_GMAC);
-	if (auths.bit.aes_ccm)
-		op(ODP_AUTH_ALG_AES_CCM);
-	if (auths.bit.aes_cmac)
-		op(ODP_AUTH_ALG_AES_CMAC);
-	if (auths.bit.aes_xcbc_mac)
-		op(ODP_AUTH_ALG_AES_XCBC_MAC);
-	if (auths.bit.chacha20_poly1305)
-		op(ODP_AUTH_ALG_CHACHA20_POLY1305);
-	if (auths.bit.kasumi_f9)
-		op(ODP_AUTH_ALG_KASUMI_F9);
-	if (auths.bit.snow3g_uia2)
-		op(ODP_AUTH_ALG_SNOW3G_UIA2);
-	if (auths.bit.snow5g_nia4)
-		op(ODP_AUTH_ALG_SNOW5G_NIA4);
-	if (auths.bit.aes_eia2)
-		op(ODP_AUTH_ALG_AES_EIA2);
-	if (auths.bit.zuc_eia3)
-		op(ODP_AUTH_ALG_ZUC_EIA3);
-	if (auths.bit.zuc_nia6)
-		op(ODP_AUTH_ALG_ZUC_NIA6);
-	if (auths.bit.snow_v_gcm)
-		op(ODP_AUTH_ALG_SNOW_V_GCM);
-	if (auths.bit.snow_v_gmac)
-		op(ODP_AUTH_ALG_SNOW_V_GMAC);
-	if (auths.bit.sm3_hmac)
-		op(ODP_AUTH_ALG_SM3_HMAC);
-	if (auths.bit.sm4_gcm)
-		op(ODP_AUTH_ALG_SM4_GCM);
-	if (auths.bit.sm4_gmac)
-		op(ODP_AUTH_ALG_SM4_GMAC);
-	if (auths.bit.sm4_ccm)
-		op(ODP_AUTH_ALG_SM4_CCM);
-	if (auths.bit.md5)
-		op(ODP_AUTH_ALG_MD5);
-	if (auths.bit.sha1)
-		op(ODP_AUTH_ALG_SHA1);
-	if (auths.bit.sha224)
-		op(ODP_AUTH_ALG_SHA224);
-	if (auths.bit.sha256)
-		op(ODP_AUTH_ALG_SHA256);
-	if (auths.bit.sha384)
-		op(ODP_AUTH_ALG_SHA384);
-	if (auths.bit.sha512)
-		op(ODP_AUTH_ALG_SHA512);
-	if (auths.bit.sha3_224)
-		op(ODP_AUTH_ALG_SHA3_224);
-	if (auths.bit.sha3_256)
-		op(ODP_AUTH_ALG_SHA3_256);
-	if (auths.bit.sha3_384)
-		op(ODP_AUTH_ALG_SHA3_384);
-	if (auths.bit.sha3_512)
-		op(ODP_AUTH_ALG_SHA3_512);
-	if (auths.bit.sm3)
-		op(ODP_AUTH_ALG_SM3);
+	for (int alg = 0; alg < MAX_NUM_AUTHS; alg++)
+		if (odph_auth_supported(&auths, alg))
+			op(alg);
 }
 
 static void print_cipher_capa(odp_cipher_alg_t cipher)
@@ -462,9 +210,12 @@ static void print_cipher_capa(odp_cipher_alg_t cipher)
 		return;
 
 	printf("        %s:\n", cipher_alg_name(cipher));
-	for (i = 0; i < rc; i++)
-		printf("            key %d iv %d\n",
-		       capa[i].key_len, capa[i].iv_len);
+	for (i = 0; i < rc; i++) {
+		printf("            key %d iv %d", capa[i].key_len, capa[i].iv_len);
+		if (capa[i].bit_mode)
+			printf(" bit_mode");
+		printf("\n");
+	}
 }
 
 static void print_auth_capa(odp_auth_alg_t auth)
@@ -489,11 +240,52 @@ static void print_auth_capa(odp_auth_alg_t auth)
 		if (capa[i].iv_len != 0)
 			printf(" iv %d", capa[i].iv_len);
 		if (capa[i].aad_len.max != 0)
-			printf(" aad %d, %d, %d",
+			printf(" aad (min %d, max %d, inc %d%s)",
 			       capa[i].aad_len.min, capa[i].aad_len.max,
-			       capa[i].aad_len.inc);
+			       capa[i].aad_len.inc,
+			       capa[i].aad_len.bit_mode ? ", bit_mode" : "");
+		if (capa[i].bit_mode)
+			printf(" bit_mode");
 		printf("\n");
 	}
+}
+
+static void print_ipsec_cipher_capa(odp_cipher_alg_t cipher)
+{
+	int caps = odp_ipsec_cipher_capability(cipher, NULL, 0);
+	int rc, i;
+
+	if (caps <= 0)
+		return;
+
+	odp_ipsec_cipher_capability_t capa[caps];
+
+	rc = odp_ipsec_cipher_capability(cipher, capa, caps);
+	if (rc < 0)
+		return;
+
+	printf("        %s:\n", cipher_alg_name(cipher));
+	for (i = 0; i < rc; i++)
+		printf("            key %d\n", capa[i].key_len);
+}
+
+static void print_ipsec_auth_capa(odp_auth_alg_t auth)
+{
+	int caps = odp_ipsec_auth_capability(auth, NULL, 0);
+	int rc, i;
+
+	if (caps <= 0)
+		return;
+
+	odp_ipsec_auth_capability_t capa[caps];
+
+	rc = odp_ipsec_auth_capability(auth, capa, caps);
+	if (rc < 0)
+		return;
+
+	printf("        %s:\n", auth_alg_name(auth));
+	for (i = 0; i < rc; i++)
+		printf("            key %d icv %d\n", capa[i].key_len, capa[i].icv_len);
 }
 
 static void print_cipher(odp_cipher_alg_t alg)
@@ -622,6 +414,7 @@ static void print_pktio_capa(appl_args_t *appl_args)
 		printf("    config.pktout:                 0x%" PRIx64 "\n",
 		       capa->config.pktout.all_bits);
 		printf("    set_op:                        0x%" PRIx32 "\n", capa->set_op.all_bits);
+#if ODP_DEPRECATED_API
 		printf("    vector.supported:              %s\n",
 		       support_level(capa->vector.supported));
 		printf("    vector.max_size:               %u\n", capa->vector.max_size);
@@ -630,6 +423,7 @@ static void print_pktio_capa(appl_args_t *appl_args)
 		       capa->vector.max_tmo_ns);
 		printf("    vector.min_tmo_ns:             %" PRIu64 " ns\n",
 		       capa->vector.min_tmo_ns);
+#endif
 		printf("    lso.max_profiles:              %u\n", capa->lso.max_profiles);
 		printf("    lso.max_profiles_per_pktio:    %u\n", capa->lso.max_profiles_per_pktio);
 		printf("    lso.max_packet_segments:       %u\n", capa->lso.max_packet_segments);
@@ -897,6 +691,7 @@ int main(int argc, char **argv)
 	odp_shm_capability_t shm_capa;
 	odp_pool_capability_t pool_capa;
 	odp_pool_ext_capability_t pool_ext_capa;
+	odp_pool_ext_capability_t pool_ext_buf_capa;
 	odp_cls_capability_t cls_capa;
 	odp_comp_capability_t comp_capa;
 	odp_dma_capability_t dma_capa;
@@ -974,6 +769,11 @@ int main(int argc, char **argv)
 
 	if (odp_pool_capability(&pool_capa)) {
 		ODPH_ERR("pool capability failed\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if (odp_pool_ext_capability(ODP_POOL_BUFFER, &pool_ext_buf_capa)) {
+		ODPH_ERR("external buffer pool capability failed\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -1136,6 +936,7 @@ int main(int argc, char **argv)
 	printf("    tmo.min_cache_size:       %u\n", pool_capa.tmo.min_cache_size);
 	printf("    tmo.max_cache_size:       %u\n", pool_capa.tmo.max_cache_size);
 	printf("    tmo.stats:                0x%" PRIx64 "\n", pool_capa.tmo.stats.all);
+#if ODP_DEPRECATED_API
 	printf("    vector.max_pools:         %u\n", pool_capa.vector.max_pools);
 	printf("    vector.max_num:           %u\n", pool_capa.vector.max_num);
 	printf("    vector.max_size:          %u\n", pool_capa.vector.max_size);
@@ -1144,6 +945,7 @@ int main(int argc, char **argv)
 	printf("    vector.min_cache_size:    %u\n", pool_capa.vector.min_cache_size);
 	printf("    vector.max_cache_size:    %u\n", pool_capa.vector.max_cache_size);
 	printf("    vector.stats:             0x%" PRIx64 "\n", pool_capa.vector.stats.all);
+#endif
 #define capa pool_capa.event_vector
 	printf("    event_vector.max_pools:         %u\n", capa.max_pools);
 	printf("    event_vector.max_num:           %u\n", capa.max_num);
@@ -1154,6 +956,25 @@ int main(int argc, char **argv)
 	printf("    event_vector.max_cache_size:    %u\n", capa.max_cache_size);
 	printf("    event_vector.stats:             0x%" PRIx64 "\n", capa.stats.all);
 #undef capa
+
+	printf("\n");
+	printf("  POOL EXT (buf)\n");
+	printf("    max_pools:             %u\n", pool_ext_buf_capa.max_pools);
+	if (pool_ext_buf_capa.max_pools) {
+		printf("    min_cache_size:        %u\n", pool_ext_buf_capa.min_cache_size);
+		printf("    max_cache_size:        %u\n", pool_ext_buf_capa.max_cache_size);
+		printf("    stats:                 0x%" PRIx64 "\n", pool_ext_buf_capa.stats.all);
+		printf("    buf.max_num_buf:       %u\n", pool_ext_buf_capa.buf.max_num_buf);
+		printf("    buf.max_buf_size:      %u B\n", pool_ext_buf_capa.buf.max_buf_size);
+		printf("    buf.odp_header_size:   %u B\n", pool_ext_buf_capa.buf.odp_header_size);
+		printf("    buf.odp_trailer_size:  %u B\n", pool_ext_buf_capa.buf.odp_trailer_size);
+		printf("    buf.min_mem_align:     %u B\n", pool_ext_buf_capa.buf.min_mem_align);
+		printf("    buf.min_buf_align:     %u B\n", pool_ext_buf_capa.buf.min_buf_align);
+		printf("    buf.min_data_align:    %u B\n", pool_ext_buf_capa.buf.min_data_align);
+		printf("    buf.buf_size_aligned:  %u\n", pool_ext_buf_capa.buf.buf_size_aligned);
+		printf("    buf.max_uarea_size:    %u B\n", pool_ext_buf_capa.buf.max_uarea_size);
+		printf("    buf.uarea_persistence: %i\n", pool_ext_buf_capa.buf.uarea_persistence);
+	}
 
 	printf("\n");
 	printf("  POOL EXT (pkt)\n");
@@ -1247,6 +1068,7 @@ int main(int argc, char **argv)
 	printf("    plain.aggr.min_size:  %u\n", queue_capa.plain.aggr.min_size);
 	printf("    plain.aggr.max_tmo_ns: %" PRIu64 "\n", queue_capa.plain.aggr.max_tmo_ns);
 	printf("    plain.aggr.min_tmo_ns: %" PRIu64 "\n", queue_capa.plain.aggr.min_tmo_ns);
+	printf("    plain.aggr.source:    0x%" PRIx32 "\n", queue_capa.plain.aggr.source.all_bits);
 
 	printf("\n");
 	printf("  SCHEDULER\n");
@@ -1267,6 +1089,7 @@ int main(int argc, char **argv)
 	printf("    aggr.min_size:        %u\n", schedule_capa.aggr.min_size);
 	printf("    aggr.max_tmo_ns:      %" PRIu64 "\n", schedule_capa.aggr.max_tmo_ns);
 	printf("    aggr.min_tmo_ns:      %" PRIu64 "\n", schedule_capa.aggr.min_tmo_ns);
+	printf("    aggr.source:          0x%" PRIx32 "\n", schedule_capa.aggr.source.all_bits);
 
 	printf("\n");
 	printf("  STASH\n");
@@ -1278,6 +1101,7 @@ int main(int argc, char **argv)
 	printf("    max_num.u32:          %" PRIu64 "\n", stash_capa.max_num.u32);
 	printf("    max_num.u64:          %" PRIu64 "\n", stash_capa.max_num.u64);
 	printf("    max_num.u128:         %" PRIu64 "\n", stash_capa.max_num.u128);
+	printf("    max_num.ptr:          %" PRIu64 "\n", stash_capa.max_num.ptr);
 	printf("    max_num.max_obj_size: %" PRIu64 "\n", stash_capa.max_num.max_obj_size);
 	printf("    max_obj_size:         %u B\n", stash_capa.max_obj_size);
 	printf("    max_cache_size:       %u\n", stash_capa.max_cache_size);
@@ -1390,6 +1214,7 @@ int main(int argc, char **argv)
 		printf("    max destination queues:       %u\n", ipsec_capa.max_queues);
 		printf("    queue_type_sched:             %i\n", ipsec_capa.queue_type_sched);
 		printf("    queue_type_plain:             %i\n", ipsec_capa.queue_type_plain);
+#if ODP_DEPRECATED_API
 		printf("    vector support:               %s\n",
 		       support_level(ipsec_capa.vector.supported));
 		printf("      min_size:                   %u\n", ipsec_capa.vector.min_size);
@@ -1398,6 +1223,7 @@ int main(int argc, char **argv)
 		       ipsec_capa.vector.min_tmo_ns);
 		printf("      max_tmo_ns:                 %" PRIu64 " ns\n",
 		       ipsec_capa.vector.max_tmo_ns);
+#endif
 		printf("    max anti-replay window size:  %u\n",
 		       ipsec_capa.max_antireplay_ws);
 		printf("    inline TM pipelining:         %s\n",
@@ -1420,9 +1246,11 @@ int main(int argc, char **argv)
 		printf("    cipher algorithms:            ");
 		foreach_cipher(ipsec_capa.ciphers, print_cipher);
 		printf("\n");
+		foreach_cipher(ipsec_capa.ciphers, print_ipsec_cipher_capa);
 		printf("    auth algorithms:              ");
 		foreach_auth(ipsec_capa.auths, print_auth);
 		printf("\n");
+		foreach_auth(ipsec_capa.auths, print_ipsec_auth_capa);
 	}
 
 	printf("\n");

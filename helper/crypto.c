@@ -1,0 +1,305 @@
+/* SPDX-License-Identifier: BSD-3-Clause
+ * Copyright (c) 2026 Nokia
+ */
+
+#include <odp/helper/crypto.h>
+#include <odp/helper/macros.h>
+
+#include <string.h>
+
+typedef struct {
+	const char *name;
+	odp_cipher_alg_t alg;
+} cipher_name_t;
+
+typedef struct {
+	const char *name;
+	odp_auth_alg_t alg;
+} auth_name_t;
+
+static const cipher_name_t cipher_names[] = {
+	{ "null",		ODP_CIPHER_ALG_NULL },
+	{ "des",		ODP_CIPHER_ALG_DES },
+	{ "3des_cbc",		ODP_CIPHER_ALG_3DES_CBC },
+	{ "3des_ecb",		ODP_CIPHER_ALG_3DES_ECB },
+	{ "aes_cbc",		ODP_CIPHER_ALG_AES_CBC },
+	{ "aes_ctr",		ODP_CIPHER_ALG_AES_CTR },
+	{ "aes_ecb",		ODP_CIPHER_ALG_AES_ECB },
+	{ "aes_cfb128",		ODP_CIPHER_ALG_AES_CFB128 },
+	{ "aes_xts",		ODP_CIPHER_ALG_AES_XTS },
+	{ "aes_gcm",		ODP_CIPHER_ALG_AES_GCM },
+	{ "aes_ccm",		ODP_CIPHER_ALG_AES_CCM },
+	{ "chacha20_poly1305",	ODP_CIPHER_ALG_CHACHA20_POLY1305 },
+	{ "kasumi_f8",		ODP_CIPHER_ALG_KASUMI_F8 },
+	{ "snow3g_uea2",	ODP_CIPHER_ALG_SNOW3G_UEA2 },
+	{ "snow5g_nea4",	ODP_CIPHER_ALG_SNOW5G_NEA4 },
+	{ "snow5g_nca4",	ODP_CIPHER_ALG_SNOW5G_NCA4 },
+	{ "aes_eea2",		ODP_CIPHER_ALG_AES_EEA2 },
+	{ "aes_nea5",		ODP_CIPHER_ALG_AES_NEA5 },
+	{ "aes_nca5",		ODP_CIPHER_ALG_AES_NCA5 },
+	{ "zuc_eea3",		ODP_CIPHER_ALG_ZUC_EEA3 },
+	{ "zuc_nea6",		ODP_CIPHER_ALG_ZUC_NEA6 },
+	{ "zuc_nca6",		ODP_CIPHER_ALG_ZUC_NCA6 },
+	{ "snow_v",		ODP_CIPHER_ALG_SNOW_V },
+	{ "snow_v_gcm",		ODP_CIPHER_ALG_SNOW_V_GCM },
+	{ "sm4_ecb",		ODP_CIPHER_ALG_SM4_ECB },
+	{ "sm4_cbc",		ODP_CIPHER_ALG_SM4_CBC },
+	{ "sm4_ctr",		ODP_CIPHER_ALG_SM4_CTR },
+	{ "sm4_gcm",		ODP_CIPHER_ALG_SM4_GCM },
+	{ "sm4_ccm",		ODP_CIPHER_ALG_SM4_CCM },
+};
+
+static const auth_name_t auth_names[] = {
+	{ "null",		ODP_AUTH_ALG_NULL },
+	{ "md5_hmac",		ODP_AUTH_ALG_MD5_HMAC },
+	{ "sha1_hmac",		ODP_AUTH_ALG_SHA1_HMAC },
+	{ "sha224_hmac",	ODP_AUTH_ALG_SHA224_HMAC },
+	{ "sha256_hmac",	ODP_AUTH_ALG_SHA256_HMAC },
+	{ "sha384_hmac",	ODP_AUTH_ALG_SHA384_HMAC },
+	{ "sha512_hmac",	ODP_AUTH_ALG_SHA512_HMAC },
+	{ "sha3_224_hmac",	ODP_AUTH_ALG_SHA3_224_HMAC },
+	{ "sha3_256_hmac",	ODP_AUTH_ALG_SHA3_256_HMAC },
+	{ "sha3_384_hmac",	ODP_AUTH_ALG_SHA3_384_HMAC },
+	{ "sha3_512_hmac",	ODP_AUTH_ALG_SHA3_512_HMAC },
+	{ "aes_gcm",		ODP_AUTH_ALG_AES_GCM },
+	{ "aes_gmac",		ODP_AUTH_ALG_AES_GMAC },
+	{ "aes_ccm",		ODP_AUTH_ALG_AES_CCM },
+	{ "aes_cmac",		ODP_AUTH_ALG_AES_CMAC },
+	{ "aes_xcbc_mac",	ODP_AUTH_ALG_AES_XCBC_MAC },
+	{ "chacha20_poly1305",	ODP_AUTH_ALG_CHACHA20_POLY1305 },
+	{ "kasumi_f9",		ODP_AUTH_ALG_KASUMI_F9 },
+	{ "snow3g_uia2",	ODP_AUTH_ALG_SNOW3G_UIA2 },
+	{ "snow5g_nia4",	ODP_AUTH_ALG_SNOW5G_NIA4 },
+	{ "snow5g_nca4",	ODP_AUTH_ALG_SNOW5G_NCA4 },
+	{ "aes_eia2",		ODP_AUTH_ALG_AES_EIA2 },
+	{ "aes_nia5",		ODP_AUTH_ALG_AES_NIA5 },
+	{ "aes_nca5",		ODP_AUTH_ALG_AES_NCA5 },
+	{ "zuc_eia3",		ODP_AUTH_ALG_ZUC_EIA3 },
+	{ "zuc_nia6",		ODP_AUTH_ALG_ZUC_NIA6 },
+	{ "zuc_nca6",		ODP_AUTH_ALG_ZUC_NCA6 },
+	{ "snow_v_gcm",		ODP_AUTH_ALG_SNOW_V_GCM },
+	{ "snow_v_gmac",	ODP_AUTH_ALG_SNOW_V_GMAC },
+	{ "sm3_hmac",		ODP_AUTH_ALG_SM3_HMAC },
+	{ "sm4_gcm",		ODP_AUTH_ALG_SM4_GCM },
+	{ "sm4_gmac",		ODP_AUTH_ALG_SM4_GMAC },
+	{ "sm4_ccm",		ODP_AUTH_ALG_SM4_CCM },
+	{ "md5",		ODP_AUTH_ALG_MD5 },
+	{ "sha1",		ODP_AUTH_ALG_SHA1 },
+	{ "sha224",		ODP_AUTH_ALG_SHA224 },
+	{ "sha256",		ODP_AUTH_ALG_SHA256 },
+	{ "sha384",		ODP_AUTH_ALG_SHA384 },
+	{ "sha512",		ODP_AUTH_ALG_SHA512 },
+	{ "sha3_224",		ODP_AUTH_ALG_SHA3_224 },
+	{ "sha3_256",		ODP_AUTH_ALG_SHA3_256 },
+	{ "sha3_384",		ODP_AUTH_ALG_SHA3_384 },
+	{ "sha3_512",		ODP_AUTH_ALG_SHA3_512 },
+	{ "sm3",		ODP_AUTH_ALG_SM3 },
+};
+
+const char *odph_cipher_alg_to_str(odp_cipher_alg_t alg)
+{
+	for (size_t i = 0; i < ODPH_ARRAY_SIZE(cipher_names); i++) {
+		if (cipher_names[i].alg == alg)
+			return cipher_names[i].name;
+	}
+
+	return NULL;
+}
+
+int odph_cipher_alg_from_str(const char *str, odp_cipher_alg_t *alg)
+{
+	for (size_t i = 0; i < ODPH_ARRAY_SIZE(cipher_names); i++) {
+		if (!strcmp(str, cipher_names[i].name)) {
+			*alg = cipher_names[i].alg;
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
+const char *odph_auth_alg_to_str(odp_auth_alg_t alg)
+{
+	for (size_t i = 0; i < ODPH_ARRAY_SIZE(auth_names); i++) {
+		if (auth_names[i].alg == alg)
+			return auth_names[i].name;
+	}
+
+	return NULL;
+}
+
+int odph_auth_alg_from_str(const char *str, odp_auth_alg_t *alg)
+{
+	for (size_t i = 0; i < ODPH_ARRAY_SIZE(auth_names); i++) {
+		if (!strcmp(str, auth_names[i].name)) {
+			*alg = auth_names[i].alg;
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
+int odph_cipher_supported(const odp_crypto_cipher_algos_t *algs, odp_cipher_alg_t cipher)
+{
+	switch (cipher) {
+	case ODP_CIPHER_ALG_NULL:
+		return algs->bit.null;
+	case ODP_CIPHER_ALG_DES:
+		return algs->bit.des;
+	case ODP_CIPHER_ALG_3DES_CBC:
+		return algs->bit.trides_cbc;
+	case ODP_CIPHER_ALG_3DES_ECB:
+		return algs->bit.trides_ecb;
+	case ODP_CIPHER_ALG_AES_CBC:
+		return algs->bit.aes_cbc;
+	case ODP_CIPHER_ALG_AES_CTR:
+		return algs->bit.aes_ctr;
+	case ODP_CIPHER_ALG_AES_ECB:
+		return algs->bit.aes_ecb;
+	case ODP_CIPHER_ALG_AES_CFB128:
+		return algs->bit.aes_cfb128;
+	case ODP_CIPHER_ALG_AES_XTS:
+		return algs->bit.aes_xts;
+	case ODP_CIPHER_ALG_AES_GCM:
+		return algs->bit.aes_gcm;
+	case ODP_CIPHER_ALG_AES_CCM:
+		return algs->bit.aes_ccm;
+	case ODP_CIPHER_ALG_CHACHA20_POLY1305:
+		return algs->bit.chacha20_poly1305;
+	case ODP_CIPHER_ALG_KASUMI_F8:
+		return algs->bit.kasumi_f8;
+	case ODP_CIPHER_ALG_SNOW3G_UEA2:
+		return algs->bit.snow3g_uea2;
+	case ODP_CIPHER_ALG_SNOW5G_NEA4:
+		return algs->bit.snow5g_nea4;
+	case ODP_CIPHER_ALG_SNOW5G_NCA4:
+		return algs->bit.snow5g_nca4;
+	case ODP_CIPHER_ALG_AES_EEA2:
+		return algs->bit.aes_eea2;
+	case ODP_CIPHER_ALG_AES_NEA5:
+		return algs->bit.aes_nea5;
+	case ODP_CIPHER_ALG_AES_NCA5:
+		return algs->bit.aes_nca5;
+	case ODP_CIPHER_ALG_ZUC_EEA3:
+		return algs->bit.zuc_eea3;
+	case ODP_CIPHER_ALG_ZUC_NEA6:
+		return algs->bit.zuc_nea6;
+	case ODP_CIPHER_ALG_ZUC_NCA6:
+		return algs->bit.zuc_nca6;
+	case ODP_CIPHER_ALG_SNOW_V:
+		return algs->bit.snow_v;
+	case ODP_CIPHER_ALG_SNOW_V_GCM:
+		return algs->bit.snow_v_gcm;
+	case ODP_CIPHER_ALG_SM4_ECB:
+		return algs->bit.sm4_ecb;
+	case ODP_CIPHER_ALG_SM4_CBC:
+		return algs->bit.sm4_cbc;
+	case ODP_CIPHER_ALG_SM4_CTR:
+		return algs->bit.sm4_ctr;
+	case ODP_CIPHER_ALG_SM4_GCM:
+		return algs->bit.sm4_gcm;
+	case ODP_CIPHER_ALG_SM4_CCM:
+		return algs->bit.sm4_ccm;
+	default:
+		break;
+	}
+	return 0;
+}
+
+int odph_auth_supported(const odp_crypto_auth_algos_t *algs, odp_auth_alg_t auth)
+{
+	switch (auth) {
+	case ODP_AUTH_ALG_NULL:
+		return algs->bit.null;
+	case ODP_AUTH_ALG_MD5_HMAC:
+		return algs->bit.md5_hmac;
+	case ODP_AUTH_ALG_SHA1_HMAC:
+		return algs->bit.sha1_hmac;
+	case ODP_AUTH_ALG_SHA224_HMAC:
+		return algs->bit.sha224_hmac;
+	case ODP_AUTH_ALG_SHA256_HMAC:
+		return algs->bit.sha256_hmac;
+	case ODP_AUTH_ALG_SHA384_HMAC:
+		return algs->bit.sha384_hmac;
+	case ODP_AUTH_ALG_SHA512_HMAC:
+		return algs->bit.sha512_hmac;
+	case ODP_AUTH_ALG_SHA3_224_HMAC:
+		return algs->bit.sha3_224_hmac;
+	case ODP_AUTH_ALG_SHA3_256_HMAC:
+		return algs->bit.sha3_256_hmac;
+	case ODP_AUTH_ALG_SHA3_384_HMAC:
+		return algs->bit.sha3_384_hmac;
+	case ODP_AUTH_ALG_SHA3_512_HMAC:
+		return algs->bit.sha3_512_hmac;
+	case ODP_AUTH_ALG_AES_GCM:
+		return algs->bit.aes_gcm;
+	case ODP_AUTH_ALG_AES_GMAC:
+		return algs->bit.aes_gmac;
+	case ODP_AUTH_ALG_AES_CCM:
+		return algs->bit.aes_ccm;
+	case ODP_AUTH_ALG_AES_CMAC:
+		return algs->bit.aes_cmac;
+	case ODP_AUTH_ALG_AES_XCBC_MAC:
+		return algs->bit.aes_xcbc_mac;
+	case ODP_AUTH_ALG_CHACHA20_POLY1305:
+		return algs->bit.chacha20_poly1305;
+	case ODP_AUTH_ALG_KASUMI_F9:
+		return algs->bit.kasumi_f9;
+	case ODP_AUTH_ALG_SNOW3G_UIA2:
+		return algs->bit.snow3g_uia2;
+	case ODP_AUTH_ALG_SNOW5G_NIA4:
+		return algs->bit.snow5g_nia4;
+	case ODP_AUTH_ALG_SNOW5G_NCA4:
+		return algs->bit.snow5g_nca4;
+	case ODP_AUTH_ALG_AES_EIA2:
+		return algs->bit.aes_eia2;
+	case ODP_AUTH_ALG_AES_NIA5:
+		return algs->bit.aes_nia5;
+	case ODP_AUTH_ALG_AES_NCA5:
+		return algs->bit.aes_nca5;
+	case ODP_AUTH_ALG_ZUC_EIA3:
+		return algs->bit.zuc_eia3;
+	case ODP_AUTH_ALG_ZUC_NIA6:
+		return algs->bit.zuc_nia6;
+	case ODP_AUTH_ALG_ZUC_NCA6:
+		return algs->bit.zuc_nca6;
+	case ODP_AUTH_ALG_SNOW_V_GCM:
+		return algs->bit.snow_v_gcm;
+	case ODP_AUTH_ALG_SNOW_V_GMAC:
+		return algs->bit.snow_v_gmac;
+	case ODP_AUTH_ALG_SM3_HMAC:
+		return algs->bit.sm3_hmac;
+	case ODP_AUTH_ALG_SM4_GCM:
+		return algs->bit.sm4_gcm;
+	case ODP_AUTH_ALG_SM4_GMAC:
+		return algs->bit.sm4_gmac;
+	case ODP_AUTH_ALG_SM4_CCM:
+		return algs->bit.sm4_ccm;
+	case ODP_AUTH_ALG_MD5:
+		return algs->bit.md5;
+	case ODP_AUTH_ALG_SHA1:
+		return algs->bit.sha1;
+	case ODP_AUTH_ALG_SHA224:
+		return algs->bit.sha224;
+	case ODP_AUTH_ALG_SHA256:
+		return algs->bit.sha256;
+	case ODP_AUTH_ALG_SHA384:
+		return algs->bit.sha384;
+	case ODP_AUTH_ALG_SHA512:
+		return algs->bit.sha512;
+	case ODP_AUTH_ALG_SHA3_224:
+		return algs->bit.sha3_224;
+	case ODP_AUTH_ALG_SHA3_256:
+		return algs->bit.sha3_256;
+	case ODP_AUTH_ALG_SHA3_384:
+		return algs->bit.sha3_384;
+	case ODP_AUTH_ALG_SHA3_512:
+		return algs->bit.sha3_512;
+	case ODP_AUTH_ALG_SM3:
+		return algs->bit.sm3;
+	default:
+		break;
+	}
+	return 0;
+}

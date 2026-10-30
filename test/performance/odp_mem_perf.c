@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause
- * Copyright (c) 2021 Nokia
+ * Copyright (c) 2021-2026 Nokia
  */
 
 /**
@@ -20,11 +20,18 @@
 #include <odp_api.h>
 #include <odp/helper/odph_api.h>
 
+/* Maximum number of stash get/put retries */
+#define MAX_STASH_RETRY 100
+
+/* Minimum shared memory block length in bytes */
+#define MIN_BLOCK_LEN   1024
+
 typedef struct test_options_t {
 	uint32_t num_cpu;
 	uint32_t num_round;
 	uint64_t data_len;
 	uint32_t shm_flags;
+	uint32_t shared_blocks;
 	int private;
 	int mode;
 
@@ -36,6 +43,7 @@ typedef struct test_thread_ctx_t {
 	test_global_t *global;
 	void *shm_addr;
 	uint64_t nsec;
+	uint64_t dummy_sum;
 
 } test_thread_ctx_t;
 
@@ -46,6 +54,8 @@ struct test_global_t {
 	uint32_t num_shm;
 	odp_shm_t shm[ODP_THREAD_COUNT_MAX];
 	void *shm_addr[ODP_THREAD_COUNT_MAX];
+	odp_stash_t stash;
+	uint64_t block_len;
 	odp_cpumask_t cpumask;
 	odph_thread_t thread_tbl[ODP_THREAD_COUNT_MAX];
 	test_thread_ctx_t thread_ctx[ODP_THREAD_COUNT_MAX];
@@ -60,17 +70,27 @@ static void print_usage(void)
 	       "Usage: odp_mem_perf [options]\n"
 	       "\n"
 	       "  -c, --num_cpu          Number of CPUs (worker threads). 0: all available CPUs. Default 1.\n"
-	       "  -r, --num_round        Number of rounds\n"
-	       "  -l, --data_len         Data length in bytes\n"
+	       "  -r, --num_round        Number of rounds. Default 1000.\n"
+	       "  -l, --data_len         Data length in bytes. Default 10MB.\n"
 	       "  -f, --flags            SHM flags parameter. Default 0.\n"
-	       "  -p, --private          0: The same memory area is shared between threads (default)\n"
+	       "  -p, --private          0: Shared memory. The area is split into blocks stored in a stash.\n"
+	       "                            Threads share the memory, and each block is used by one\n"
+	       "                            thread at a time (default).\n"
 	       "                         1: Memory areas are private to each thread. This increases\n"
 	       "                            memory consumption to num_cpu * data_len.\n"
-	       "  -m, --mode             0: Memset data (default)\n"
-	       "                         1: Memcpy data. On each round, reads data from one half of the memory area\n"
+	       "  -s, --shared_blocks    Number of memory blocks in shared memory mode. The shared\n"
+	       "                         area is split into this many equal, cache line aligned blocks.\n"
+	       "                         Default: 2 x num_cpu. Minimum: num_cpu. Maximum: data_len / %u\n"
+	       "                         (i.e. min block size).\n"
+	       "  -m, --mode             0: Memset data with varying value (default)\n"
+	       "                         1: Memset data with zero\n"
+	       "                         2: Memcpy data. On each round, reads data from one half of the memory area\n"
 	       "                            and writes it to the other half.\n"
+	       "                         3: Read data. On each round, reads through the entire memory area.\n"
+	       "                         4: Memcmp data. On each round, compares data of one half of the memory\n"
+	       "                            area to the other half.\n"
 	       "  -h, --help             This help\n"
-	       "\n");
+	       "\n", MIN_BLOCK_LEN);
 }
 
 static int parse_options(int argc, char *argv[], test_options_t *test_options)
@@ -79,24 +99,26 @@ static int parse_options(int argc, char *argv[], test_options_t *test_options)
 	int ret = 0;
 
 	static const struct option longopts[] = {
-		{"num_cpu",   required_argument, NULL, 'c'},
-		{"num_round", required_argument, NULL, 'r'},
-		{"data_len",  required_argument, NULL, 'l'},
-		{"flags",     required_argument, NULL, 'f'},
-		{"private",   required_argument, NULL, 'p'},
-		{"mode",      required_argument, NULL, 'm'},
-		{"help",      no_argument,       NULL, 'h'},
+		{"num_cpu",       required_argument, NULL, 'c'},
+		{"num_round",     required_argument, NULL, 'r'},
+		{"data_len",      required_argument, NULL, 'l'},
+		{"flags",         required_argument, NULL, 'f'},
+		{"private",       required_argument, NULL, 'p'},
+		{"shared_blocks", required_argument, NULL, 's'},
+		{"mode",          required_argument, NULL, 'm'},
+		{"help",          no_argument,       NULL, 'h'},
 		{NULL, 0, NULL, 0}
 	};
 
-	static const char *shortopts = "+c:r:l:f:p:m:h";
+	static const char *shortopts = "+c:r:l:f:p:s:m:h";
 
-	test_options->num_cpu   = 1;
-	test_options->num_round = 1000;
-	test_options->data_len  = 10 * 1024 * 1024;
-	test_options->shm_flags = 0;
-	test_options->private   = 0;
-	test_options->mode      = 0;
+	test_options->num_cpu       = 1;
+	test_options->num_round     = 1000;
+	test_options->data_len      = 10 * 1024 * 1024;
+	test_options->shm_flags     = 0;
+	test_options->shared_blocks = 0; /* when 0, defaults to 2x num_cpu */
+	test_options->private       = 0;
+	test_options->mode          = 0;
 
 	while (1) {
 		opt = getopt_long(argc, argv, shortopts, longopts, NULL);
@@ -120,6 +142,9 @@ static int parse_options(int argc, char *argv[], test_options_t *test_options)
 		case 'p':
 			test_options->private = atoi(optarg);
 			break;
+		case 's':
+			test_options->shared_blocks = strtoul(optarg, NULL, 0);
+			break;
 		case 'm':
 			test_options->mode = atoi(optarg);
 			break;
@@ -130,6 +155,11 @@ static int parse_options(int argc, char *argv[], test_options_t *test_options)
 			ret = -1;
 			break;
 		}
+	}
+
+	if (test_options->mode < 0 || test_options->mode > 4) {
+		ODPH_ERR("Bad mode: %i\n", test_options->mode);
+		return -1;
 	}
 
 	return ret;
@@ -174,6 +204,59 @@ static int set_num_cpu(test_global_t *global)
 	return 0;
 }
 
+/* Resolve shared block count and cache-line-aligned block length */
+static int set_shared_blocks(test_global_t *global)
+{
+	test_options_t *opt = &global->test_options;
+	uint32_t num_cpu = opt->num_cpu;
+	uint64_t max_blocks;
+	uint64_t block_len;
+
+	if (opt->private)
+		return 0;
+
+	max_blocks = opt->data_len / MIN_BLOCK_LEN;
+	if (max_blocks < num_cpu) {
+		ODPH_ERR("Data length %" PRIu64 " is too small for %u threads. "
+			 "At least %" PRIu64 " bytes needed.\n",
+			 opt->data_len, num_cpu, (uint64_t)num_cpu * MIN_BLOCK_LEN);
+		return -1;
+	}
+
+	/* Default is two blocks per thread */
+	if (opt->shared_blocks == 0) {
+		if ((uint64_t)num_cpu * 2 > max_blocks) {
+			ODPH_ERR("Default shared block count %u exceeds maximum %" PRIu64 ". "
+				 "Increase data length or set --shared_blocks.\n",
+				 num_cpu * 2, max_blocks);
+			return -1;
+		}
+
+		opt->shared_blocks = num_cpu * 2;
+	}
+
+	if (opt->shared_blocks < num_cpu || (uint64_t)opt->shared_blocks > max_blocks) {
+		ODPH_ERR("Invalid shared block count %u. Valid range is %u ... %" PRIu64 ".\n",
+			 opt->shared_blocks, num_cpu, max_blocks);
+		return -1;
+	}
+
+	/* Round block length down so that every block stays inside the area and
+	 * starts on a cache line */
+	block_len = opt->data_len / opt->shared_blocks;
+	block_len &= ~((uint64_t)ODP_CACHE_LINE_SIZE - 1);
+
+	if (block_len < MIN_BLOCK_LEN) {
+		ODPH_ERR("Block size %" PRIu64 " is below %u bytes after cache line alignment.\n",
+			 block_len, MIN_BLOCK_LEN);
+		return -1;
+	}
+
+	global->block_len = block_len;
+
+	return 0;
+}
+
 static int create_shm(test_global_t *global)
 {
 	odp_shm_capability_t shm_capa;
@@ -200,6 +283,10 @@ static int create_shm(test_global_t *global)
 	printf("  shm flags        0x%x\n", shm_flags);
 	printf("  num shm          %u\n", num_shm);
 	printf("  private          %i\n", private);
+	if (!private) {
+		printf("  shared blocks    %u\n", test_options->shared_blocks);
+		printf("  block len        %" PRIu64 "\n", global->block_len);
+	}
 	printf("  mode             %i\n", test_options->mode);
 
 	if (odp_shm_capability(&shm_capa)) {
@@ -263,7 +350,114 @@ static int free_shm(test_global_t *global)
 	return 0;
 }
 
-static int run_test(void *arg)
+static int create_stash(test_global_t *global)
+{
+	odp_stash_capability_t capa;
+	odp_stash_param_t param;
+	test_options_t *opt = &global->test_options;
+	uint32_t num_block = opt->shared_blocks;
+	uint64_t block_len = global->block_len;
+	uint8_t *base;
+	uint32_t i;
+	uintptr_t ptr;
+
+	if (opt->private)
+		return 0;
+
+	if (odp_stash_capability(&capa, ODP_STASH_TYPE_FIFO) || capa.max_stashes == 0) {
+		ODPH_ERR("FIFO stash is not supported.\n");
+		return -1;
+	}
+
+	if (num_block > capa.max_num.ptr) {
+		ODPH_ERR("Too many shared blocks for stash (%u). Maximum %" PRIu64 ".\n",
+			 num_block, capa.max_num.ptr);
+		return -1;
+	}
+
+	odp_stash_param_init(&param);
+	param.type        = ODP_STASH_TYPE_FIFO;
+	param.put_mode    = ODP_STASH_OP_MT;
+	param.get_mode    = ODP_STASH_OP_MT;
+	param.num_obj     = num_block;
+	param.obj_size    = sizeof(uintptr_t);
+	/* Not using thread local cache as each thread should touch all
+	 * blocks during a test run */
+	param.cache_size  = 0;
+	param.strict_size = 1;
+
+	global->stash = odp_stash_create("mem_perf_blocks", &param);
+	if (global->stash == ODP_STASH_INVALID) {
+		ODPH_ERR("Stash create failed.\n");
+		return -1;
+	}
+
+	base = global->shm_addr[0];
+
+	for (i = 0; i < num_block; i++) {
+		ptr = (uintptr_t)(base + ((uint64_t)i * block_len));
+
+		if (odp_stash_put_ptr(global->stash, &ptr, 1) != 1) {
+			ODPH_ERR("Stash put failed for block %u.\n", i);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static int destroy_stash(test_global_t *global)
+{
+	uint32_t i;
+	uintptr_t ptr;
+	int ret;
+
+	if (global->test_options.private)
+		return 0;
+
+	for (i = 0; i < global->test_options.shared_blocks; i++) {
+		ret = odp_stash_get_ptr(global->stash, &ptr, 1);
+		if (ret != 1) {
+			ODPH_ERR("Stash get failed while emptying (%u).\n", i);
+			return -1;
+		}
+	}
+
+	if (odp_stash_destroy(global->stash)) {
+		ODPH_ERR("Stash destroy failed.\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+/* Read through the data area. Calculate sum, so that the compiler
+ * cannot optimize the reads away. */
+static inline uint64_t read_data(const uint64_t *data, uint64_t num_word)
+{
+	uint64_t i;
+	uint64_t sum_0 = 0;
+	uint64_t sum_1 = 0;
+	uint64_t sum_2 = 0;
+	uint64_t sum_3 = 0;
+	uint64_t num_unroll = num_word & ~(uint64_t)0x7;
+
+	/* Data start is cache line aligned. Read 8 words per loop. */
+	for (i = 0; i < num_unroll; i += 8) {
+		sum_0 += data[i + 0] + data[i + 1];
+		sum_1 += data[i + 2] + data[i + 3];
+		sum_2 += data[i + 4] + data[i + 5];
+		sum_3 += data[i + 6] + data[i + 7];
+	}
+
+	/* Left over words */
+	for (; i < num_word; i++)
+		sum_0 += data[i];
+
+	return sum_0 + sum_1 + sum_2 + sum_3;
+}
+
+static int run_test_private(void *arg)
 {
 	int thr;
 	uint32_t i;
@@ -275,10 +469,15 @@ static int run_test(void *arg)
 	uint32_t num_round = test_options->num_round;
 	uint64_t data_len = test_options->data_len;
 	uint64_t half_len = data_len / 2;
+	uint64_t num_word = data_len / sizeof(uint64_t);
+	uint64_t dummy_sum = 0;
 	int mode = test_options->mode;
 	uint8_t *addr = thread_ctx->shm_addr;
 
 	thr = odp_thread_id();
+
+	/* Write the data area so that all pages are faulted in before test starts */
+	memset(addr, thr, data_len);
 
 	/* Start all workers at the same time */
 	odp_barrier_wait(&global->barrier);
@@ -288,13 +487,25 @@ static int run_test(void *arg)
 	if (mode == 0) {
 		for (i = 0; i < num_round; i++)
 			memset(addr, thr + i, data_len);
-	} else {
+	} else if (mode == 1) {
+		for (i = 0; i < num_round; i++)
+			memset(addr, 0, data_len);
+	} else if (mode == 2) {
 		for (i = 0; i < num_round; i++) {
 			if ((i & 0x1) == 0)
 				memcpy(&addr[half_len], addr, half_len);
 			else
 				memcpy(addr, &addr[half_len], half_len);
 		}
+	} else if (mode == 3) {
+		for (i = 0; i < num_round; i++)
+			dummy_sum += read_data((const uint64_t *)(uintptr_t)addr, num_word);
+	} else {
+		/* volatile prevents compiler from optimizing the loop away */
+		uint8_t *volatile cmp_addr = addr;
+
+		for (i = 0; i < num_round; i++)
+			dummy_sum |= memcmp(cmp_addr, &cmp_addr[half_len], half_len);
 	}
 
 	t2 = odp_time_local();
@@ -303,6 +514,124 @@ static int run_test(void *arg)
 
 	/* Update stats */
 	thread_ctx->nsec   = nsec;
+	thread_ctx->dummy_sum = dummy_sum;
+
+	return 0;
+}
+
+static inline int get_block(odp_stash_t stash, uint8_t **addr)
+{
+	uintptr_t ptr;
+	int ret = 0;
+	int retry = MAX_STASH_RETRY;
+
+	while (retry--) {
+		ret = odp_stash_get_ptr(stash, &ptr, 1);
+		if (ret > 0) {
+			break;
+		} else if (odp_unlikely(ret < 0)) {
+			ODPH_ERR("Stash get failed.\n");
+			return -1;
+		}
+	}
+
+	if (odp_unlikely(ret == 0)) {
+		ODPH_ERR("Stash get exceeded %d retries.\n", MAX_STASH_RETRY);
+		return -1;
+	}
+
+	*addr = (uint8_t *)ptr;
+	return 0;
+}
+
+static inline int put_block(odp_stash_t stash, uint8_t *addr)
+{
+	uintptr_t ptr = (uintptr_t)addr;
+	int ret = 0;
+	int retry = MAX_STASH_RETRY;
+
+	while (retry--) {
+		ret = odp_stash_put_ptr(stash, &ptr, 1);
+		if (ret > 0) {
+			break;
+		} else if (odp_unlikely(ret < 0)) {
+			ODPH_ERR("Stash put failed.\n");
+			return -1;
+		}
+	}
+
+	if (odp_unlikely(ret == 0)) {
+		ODPH_ERR("Stash put exceeded %d retries.\n", MAX_STASH_RETRY);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int run_test_shared(void *arg)
+{
+	int thr;
+	uint32_t i;
+	uint64_t nsec;
+	odp_time_t t1, t2;
+	test_thread_ctx_t *thread_ctx = arg;
+	test_global_t *global = thread_ctx->global;
+	test_options_t *test_options = &global->test_options;
+	uint32_t num_round = test_options->num_round;
+	uint64_t block_len = global->block_len;
+	uint64_t area_len = (uint64_t)test_options->shared_blocks * block_len;
+	uint64_t half_len = block_len / 2;
+	uint64_t num_word = block_len / sizeof(uint64_t);
+	uint64_t dummy_sum = 0;
+	const int mode = test_options->mode;
+	odp_stash_t stash = global->stash;
+	uint8_t *base = thread_ctx->shm_addr;
+	uint8_t *addr;
+
+	thr = odp_thread_id();
+
+	/* Fault in the shared area before the timed section. During the test, a block
+	 * is held by only one worker at a time. In memcmp mode, all workers write the same
+	 * value, so that block halves match regardless of the write order between workers. */
+	if (mode == 4)
+		memset(base, 0, area_len);
+	else
+		memset(base, thr, area_len);
+
+	/* Start all workers at the same time */
+	odp_barrier_wait(&global->barrier);
+
+	t1 = odp_time_local();
+
+	for (i = 0; i < num_round; i++) {
+		if (get_block(stash, &addr))
+			return -1;
+
+		if (mode == 0) {
+			memset(addr, thr + i, block_len);
+		} else if (mode == 1) {
+			memset(addr, 0, block_len);
+		} else if (mode == 2) {
+			if ((i & 0x1) == 0)
+				memcpy(&addr[half_len], addr, half_len);
+			else
+				memcpy(addr, &addr[half_len], half_len);
+		} else if (mode == 3) {
+			dummy_sum += read_data((const uint64_t *)(uintptr_t)addr, num_word);
+		} else {
+			dummy_sum |= memcmp(addr, &addr[half_len], half_len);
+		}
+
+		if (put_block(stash, addr))
+			return -1;
+	}
+
+	t2   = odp_time_local();
+	nsec = odp_time_diff_ns(t2, t1);
+
+	/* Update stats */
+	thread_ctx->nsec      = nsec;
+	thread_ctx->dummy_sum = dummy_sum;
 
 	return 0;
 }
@@ -329,7 +658,7 @@ static int start_workers(test_global_t *global, odp_instance_t instance)
 
 		odph_thread_param_init(&thr_param[i]);
 		thr_param[i].thr_type = ODP_THREAD_WORKER;
-		thr_param[i].start    = run_test;
+		thr_param[i].start    = test_options->private ? run_test_private : run_test_shared;
 		thr_param[i].arg      = thread_ctx;
 	}
 
@@ -342,7 +671,7 @@ static int start_workers(test_global_t *global, odp_instance_t instance)
 	return 0;
 }
 
-static void print_stat(test_global_t *global)
+static int print_stat(test_global_t *global)
 {
 	int i, num;
 	double nsec_ave;
@@ -350,20 +679,35 @@ static void print_stat(test_global_t *global)
 	test_options_t *test_options = &global->test_options;
 	int num_cpu = test_options->num_cpu;
 	uint32_t num_round = test_options->num_round;
-	uint64_t data_len = test_options->data_len;
+	uint64_t round_len = test_options->private ? test_options->data_len : global->block_len;
 	uint64_t nsec_sum = 0;
+	uint64_t dummy_sum = 0;
+	int num_mismatch = 0;
+	int ret = 0;
 
-	for (i = 0; i < ODP_THREAD_COUNT_MAX; i++)
-		nsec_sum += global->thread_ctx[i].nsec;
+	for (i = 0; i < ODP_THREAD_COUNT_MAX; i++) {
+		nsec_sum  += global->thread_ctx[i].nsec;
+		dummy_sum += global->thread_ctx[i].dummy_sum;
+
+		if (global->thread_ctx[i].dummy_sum)
+			num_mismatch++;
+	}
 
 	if (nsec_sum == 0) {
 		printf("No results.\n");
-		return;
+		return 0;
 	}
 
-	data_touch = num_round * data_len;
+	data_touch = num_round * round_len;
 	nsec_ave = nsec_sum / num_cpu;
 	num = 0;
+
+	printf("\ndummy_sum: %" PRIu64 "\n\n", dummy_sum);
+
+	if (test_options->mode == 4 && num_mismatch) {
+		printf("WARNING: memcmp mismatch on %i/%i threads!\n\n", num_mismatch, num_cpu);
+		ret = -1;
+	}
 
 	printf("RESULTS - per thread (MB per sec):\n");
 	printf("----------------------------------\n");
@@ -380,12 +724,17 @@ static void print_stat(test_global_t *global)
 	}
 	printf("\n\n");
 
+	if (num != num_cpu)
+		printf("WARNING: thread result miss-match %i/%i!\n\n", num, num_cpu);
+
 	printf("RESULTS - average over %i threads:\n", num_cpu);
 	printf("----------------------------------\n");
 	printf("  duration:          %.6f sec\n",  nsec_ave / 1000000000);
 	printf("  bandwidth per cpu: %.3f MB/s\n", data_touch / (nsec_ave / 1000.0));
 	printf("  total bandwidth:   %.3f MB/s\n", (num_cpu * data_touch) / (nsec_ave / 1000.0));
 	printf("\n");
+
+	return ret;
 }
 
 int main(int argc, char **argv)
@@ -395,6 +744,8 @@ int main(int argc, char **argv)
 	odp_init_t init;
 	odp_shm_t shm;
 	test_global_t *global;
+	test_options_t test_options;
+	int ret = 0;
 
 	/* Let helper collect its own arguments (e.g. --odph_proc) */
 	argc = odph_parse_options(argc, argv);
@@ -403,13 +754,20 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 
+	if (parse_options(argc, argv, &test_options))
+		return -1;
+
 	/* List features not to be used */
 	odp_init_param_init(&init);
 	init.not_used.feat.cls      = 1;
 	init.not_used.feat.compress = 1;
 	init.not_used.feat.crypto   = 1;
+	init.not_used.feat.dma      = 1;
 	init.not_used.feat.ipsec    = 1;
+	init.not_used.feat.ml       = 1;
 	init.not_used.feat.schedule = 1;
+	/* Stash used only in shared memory mode */
+	init.not_used.feat.stash    = test_options.private ? 1 : 0;
 	init.not_used.feat.timer    = 1;
 	init.not_used.feat.tm       = 1;
 
@@ -440,16 +798,20 @@ int main(int argc, char **argv)
 	}
 
 	memset(global, 0, sizeof(test_global_t));
-
-	if (parse_options(argc, argv, &global->test_options))
-		return -1;
+	global->test_options = test_options;
 
 	odp_sys_info_print();
 
 	if (set_num_cpu(global))
 		return -1;
 
+	if (set_shared_blocks(global))
+		return -1;
+
 	if (create_shm(global))
+		return -1;
+
+	if (create_stash(global))
 		return -1;
 
 	/* Start workers */
@@ -459,7 +821,10 @@ int main(int argc, char **argv)
 	/* Wait workers to exit */
 	odph_thread_join(global->thread_tbl, global->test_options.num_cpu);
 
-	print_stat(global);
+	ret = print_stat(global);
+
+	if (destroy_stash(global))
+		return -1;
 
 	if (free_shm(global))
 		return -1;
@@ -478,6 +843,9 @@ int main(int argc, char **argv)
 		ODPH_ERR("term global failed.\n");
 		return -1;
 	}
+
+	if (ret)
+		return EXIT_FAILURE;
 
 	return 0;
 }

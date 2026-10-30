@@ -23,6 +23,9 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <unistd.h>
+#include <errno.h>
+#include <pthread.h>
+#include <time.h>
 
 #include <odp_api.h>
 #include <odp/helper/odph_api.h>
@@ -109,6 +112,7 @@ typedef struct test_options_t {
 	uint32_t num_pktio;
 	uint32_t num_pkt;
 	uint32_t pkt_len;
+	uint32_t pool_align;
 	uint8_t  use_rand_pkt_len;
 	uint8_t  direct_rx;
 	uint32_t rand_pkt_len_min;
@@ -129,6 +133,10 @@ typedef struct test_options_t {
 	uint32_t mtu;
 	uint32_t num_custom_l3;
 	struct {
+		uint32_t rx;
+		uint32_t tx;
+	} queue_size;
+	struct {
 		odp_lso_profile_param_t param;
 		uint32_t payload_offset;
 		uint32_t max_payload_len;
@@ -141,6 +149,7 @@ typedef struct test_options_t {
 	odp_bool_t calc_cs;
 	odp_bool_t cs_offload;
 	odp_bool_t fill_pl;
+	odp_bool_t verbose;
 
 	struct vlan_hdr {
 		uint16_t tpid;
@@ -209,18 +218,20 @@ typedef struct test_global_t {
 	odp_barrier_t barrier;
 	odp_cpumask_t cpumask;
 	odp_pool_t pool;
+	odp_spinlock_t verbose_lock;
 	uint64_t drained;
-	odph_thread_t thread_tbl[MAX_THREADS];
+	odph_thread_t thread_tbl[MAX_WORKERS];
 	thread_stat_t stat[MAX_THREADS];
-	thread_arg_t thread_arg[MAX_THREADS];
+	thread_arg_t *thread_arg;
+	odp_shm_t thread_arg_shm;
 
 	struct {
 		odph_ethaddr_t eth_src;
 		odph_ethaddr_t eth_dst;
 		odp_pktio_t pktio;
 		odp_lso_profile_t lso_profile;
-		odp_pktout_queue_t pktout[MAX_THREADS];
-		odp_pktin_queue_t pktin[MAX_THREADS];
+		odp_pktout_queue_t pktout[MAX_WORKERS];
+		odp_pktin_queue_t pktin[MAX_WORKERS];
 		int started;
 
 	} pktio[MAX_PKTIOS];
@@ -252,7 +263,7 @@ typedef struct {
 typedef int (*send_fn_t)(odp_pktout_queue_t pktout, odp_packet_t pkt[], uint32_t num,
 			 int tx_mode, uint64_t *drop_bytes, const odp_packet_lso_opt_t *lso_opt);
 
-static test_global_t *test_global;
+static volatile sig_atomic_t sigint_received;
 
 static void print_usage(void)
 {
@@ -307,6 +318,8 @@ static void print_usage(void)
 	       "                            may not be always supported.\n"
 	       "  -n, --num_pkt             Number of packets in the pool. Default: 1000\n"
 	       "  -l, --len                 Packet length. Default: 512\n"
+	       "  -I, --align <align>       Packet data alignment in bytes. Must be a power of\n"
+	       "                            two. Default: 0 (implementation default alignment)\n"
 	       "  -L, --len_range <min,max,bins>\n"
 	       "                            Random packet length. Specify the minimum and maximum\n"
 	       "                            packet lengths and the number of bins. To reduce pool size\n"
@@ -317,7 +330,11 @@ static void print_usage(void)
 	       "                            Overrides standard packet length option.\n"
 	       "  -D, --direct_rx           Direct input mode (default: 0)\n"
 	       "                              0: Use scheduler for packet input\n"
-	       "                              1: Poll packet input in direct mode\n",
+	       "                              1: Poll packet input in direct mode\n"
+	       "  -Q, --queue_size <rx,tx>  Packet IO queue sizes. Comma-separated (no spaces)\n"
+	       "                            RX and TX queue sizes applied to all input and\n"
+	       "                            output queues. Zero means implementation default.\n"
+	       "                            Default: 0,0\n",
 	       ODP_LSO_MAX_CUSTOM, MAX_BINS);
 	printf("  -m, --tx_mode             Transmit mode (default 1):\n"
 	       "                              0: Re-send packets with don't free option\n"
@@ -354,6 +371,8 @@ static void print_usage(void)
 	       "  -A, --no_payload_fill     Do not fill payload. By default, payload is filled\n"
 	       "                            with a pattern until the end of first packet\n"
 	       "                            segment.\n"
+	       "  -V, --verbose             Print received packets on the receive side. Affects only\n"
+	       "                            rx threads.\n"
 	       "  -q, --quit                Quit after this many transmit rounds.\n"
 	       "                            Default: 0 (don't quit)\n"
 	       "  -u, --update_stat <msec>  Update and print statistics every <msec> milliseconds.\n"
@@ -733,8 +752,10 @@ static int parse_options(int argc, char *argv[], test_global_t *global)
 		{"num_pkt",     required_argument, NULL, 'n'},
 		{"proto",       required_argument, NULL, 'N'},
 		{"len",         required_argument, NULL, 'l'},
+		{"align",       required_argument, NULL, 'I'},
 		{"len_range",   required_argument, NULL, 'L'},
 		{"direct_rx",   required_argument, NULL, 'D'},
+		{"queue_size",  required_argument, NULL, 'Q'},
 		{"tx_mode",     required_argument, NULL, 'm'},
 		{"burst_size",  required_argument, NULL, 'b'},
 		{"bursts",      required_argument, NULL, 'x'},
@@ -750,6 +771,7 @@ static int parse_options(int argc, char *argv[], test_global_t *global)
 		{"no_udp_checksum", no_argument,   NULL, 'C'},
 		{"checksum_offload", no_argument,  NULL, 'X'},
 		{"no_payload_fill", no_argument,   NULL, 'A'},
+		{"verbose",     no_argument,       NULL, 'V'},
 		{"mtu",         required_argument, NULL, 'M'},
 		{"quit",        required_argument, NULL, 'q'},
 		{"wait",        required_argument, NULL, 'w'},
@@ -760,14 +782,15 @@ static int parse_options(int argc, char *argv[], test_global_t *global)
 		{NULL, 0, NULL, 0}
 	};
 
-	static const char *shortopts = "+i:e:r:t:T:n:N:l:L:D:m:M:b:x:g:v:s:d:o:"
-				       "p:c:CXAq:u:w:W:PaU:h";
+	static const char *shortopts = "+i:e:r:t:T:n:N:l:I:L:D:Q:m:M:b:x:g:v:s:d:o:"
+				       "p:c:CXAVq:u:w:W:PaU:h";
 
 	test_options->num_pktio  = 0;
 	test_options->num_rx     = 1;
 	test_options->num_tx     = 1;
 	test_options->num_pkt    = 1000;
 	test_options->pkt_len    = 512;
+	test_options->pool_align = 0;
 	test_options->use_rand_pkt_len = 0;
 	test_options->direct_rx  = 0;
 	test_options->tx_mode    = TX_MODE_REF;
@@ -780,6 +803,7 @@ static int parse_options(int argc, char *argv[], test_global_t *global)
 	test_options->calc_cs    = 1;
 	test_options->cs_offload = 0;
 	test_options->fill_pl    = 1;
+	test_options->verbose    = 0;
 	odph_strcpy(test_options->ipv4_src_s, "192.168.0.1",
 		    sizeof(test_options->ipv4_src_s));
 	odph_strcpy(test_options->ipv4_dst_s, "192.168.0.2",
@@ -803,6 +827,8 @@ static int parse_options(int argc, char *argv[], test_global_t *global)
 	test_options->mtu = 0;
 	test_options->l4_proto = L4_PROTO_UDP;
 	test_options->lso.enabled = false;
+	test_options->queue_size.rx = 0;
+	test_options->queue_size.tx = 0;
 
 	for (i = 0; i < MAX_PKTIOS; i++) {
 		memcpy(global->pktio[i].eth_dst.addr, default_eth_dst, 6);
@@ -916,6 +942,9 @@ static int parse_options(int argc, char *argv[], test_global_t *global)
 		case 'l':
 			test_options->pkt_len = atoi(optarg);
 			break;
+		case 'I':
+			test_options->pool_align = atoi(optarg);
+			break;
 		case 'L':
 			pkt_len = strtoul(optarg, &end, 0);
 			test_options->rand_pkt_len_min = pkt_len;
@@ -929,6 +958,11 @@ static int parse_options(int argc, char *argv[], test_global_t *global)
 			break;
 		case 'D':
 			test_options->direct_rx = atoi(optarg);
+			break;
+		case 'Q':
+			test_options->queue_size.rx = strtoul(optarg, &end, 0);
+			end++;
+			test_options->queue_size.tx = strtoul(end, NULL, 0);
 			break;
 		case 'm':
 			test_options->tx_mode = atoi(optarg);
@@ -986,6 +1020,9 @@ static int parse_options(int argc, char *argv[], test_global_t *global)
 			break;
 		case 'A':
 			test_options->fill_pl = 0;
+			break;
+		case 'V':
+			test_options->verbose = 1;
 			break;
 		case 'q':
 			test_options->quit = atoll(optarg);
@@ -1315,6 +1352,7 @@ static int create_packet_pool(test_global_t *global)
 	uint32_t num_pkt = test_options->num_pkt;
 	uint32_t pkt_len = test_options->use_rand_pkt_len ? test_options->rand_pkt_len_max :
 							    test_options->pkt_len;
+	uint32_t align = test_options->pool_align;
 	uint32_t seg_len;
 	odp_pool_capability_t pool_capa;
 	odp_pool_param_t  pool_param;
@@ -1343,10 +1381,22 @@ static int create_packet_pool(test_global_t *global)
 		return -1;
 	}
 
+	if (align & (align - 1)) {
+		ODPH_ERR("Error: Packet alignment must be a power of two: %u\n", align);
+		return -1;
+	}
+
+	if (align > pool_capa.pkt.max_align) {
+		ODPH_ERR("Error: Too large packet alignment. Max %u supported.\n",
+			 pool_capa.pkt.max_align);
+		return -1;
+	}
+
 	odp_pool_param_init(&pool_param);
 	pool_param.type        = ODP_POOL_PACKET;
 	pool_param.pkt.num     = num_pkt;
 	pool_param.pkt.len     = pkt_len;
+	pool_param.pkt.align   = align;
 	pool_param.pkt.seg_len = seg_len;
 
 	global->pool = odp_pool_create("packet gen pool", &pool_param);
@@ -1367,6 +1417,20 @@ static int destroy_packet_pool(test_global_t *global)
 	return 0;
 }
 
+static void pktio_capa_print(const char *name, const odp_pktio_capability_t *capa)
+{
+	printf("Packet IO capabilities (%s)\n", name);
+	printf("  max_input_queues:       %" PRIu32 "\n", capa->max_input_queues);
+	printf("  max_output_queues:      %" PRIu32 "\n", capa->max_output_queues);
+	printf("  min_input_queue_size:   %" PRIu32 "\n", capa->min_input_queue_size);
+	printf("  max_input_queue_size:   %" PRIu32 "\n", capa->max_input_queue_size);
+	printf("  min_output_queue_size:  %" PRIu32 "\n", capa->min_output_queue_size);
+	printf("  max_output_queue_size:  %" PRIu32 "\n", capa->max_output_queue_size);
+	printf("  maxlen.max_input:       %" PRIu32 "\n", capa->maxlen.max_input);
+	printf("  maxlen.max_output:      %" PRIu32 "\n", capa->maxlen.max_output);
+	printf("\n");
+}
+
 static int open_pktios(test_global_t *global)
 {
 	odp_pktio_capability_t pktio_capa;
@@ -1381,6 +1445,8 @@ static int open_pktios(test_global_t *global)
 	test_options_t *test_options = &global->test_options;
 	int num_rx = test_options->num_rx;
 	int num_tx = test_options->num_tx;
+	uint32_t rx_size = test_options->queue_size.rx;
+	uint32_t tx_size = test_options->queue_size.tx;
 	uint32_t num_pktio = test_options->num_pktio;
 	uint32_t num_pkt = test_options->num_pkt;
 	uint32_t pkt_len = test_options->use_rand_pkt_len ?
@@ -1399,18 +1465,34 @@ static int open_pktios(test_global_t *global)
 		       test_options->rand_pkt_len_bins);
 	else
 		printf("  packet length:     %u bytes\n", pkt_len);
+	printf("  packet align:      ");
+	if (test_options->pool_align)
+		printf("%u bytes\n", test_options->pool_align);
+	else
+		printf("pool default\n");
 	printf("  MTU:               ");
 	if (test_options->mtu)
 		printf("%u bytes\n", test_options->mtu);
 	else
 		printf("interface default\n");
 	printf("  packet input mode: %s\n", test_options->direct_rx ? "direct" : "scheduler");
+	printf("  rx queue size:     ");
+	if (rx_size)
+		printf("%" PRIu32 "\n", rx_size);
+	else
+		printf("default\n");
+	printf("  tx queue size:     ");
+	if (tx_size)
+		printf("%" PRIu32 "\n", tx_size);
+	else
+		printf("default\n");
 	printf("  promisc mode:      %s\n", test_options->promisc_mode ? "enabled" : "disabled");
 	printf("  transmit mode:     %i\n", test_options->tx_mode);
 	printf("  measure latency:   %s\n", test_options->calc_latency ? "enabled" : "disabled");
 	printf("  UDP SW checksum:   %s\n", test_options->calc_cs ? "enabled" : "disabled");
 	printf("  Checksum offload:  %s\n", test_options->cs_offload ? "enabled" : "disabled");
 	printf("  payload filling:   %s\n", test_options->fill_pl ? "enabled" : "disabled");
+	printf("  verbose:           %s\n", test_options->verbose ? "enabled" : "disabled");
 	printf("  tx burst size:     %u\n", test_options->burst_size);
 	printf("  tx bursts:         %u\n", test_options->bursts);
 	printf("  tx burst gap:      %" PRIu64 " nsec\n",
@@ -1572,6 +1654,8 @@ static int open_pktios(test_global_t *global)
 			return -1;
 		}
 
+		pktio_capa_print(name, &pktio_capa);
+
 		if (num_rx > (int)pktio_capa.max_input_queues) {
 			ODPH_ERR("Error (%s): Too many RX threads. Interface supports max %u input queues.\n",
 				 name, pktio_capa.max_input_queues);
@@ -1582,6 +1666,44 @@ static int open_pktios(test_global_t *global)
 			ODPH_ERR("Error (%s): Too many TX threads. Interface supports max %u output queues.\n",
 				 name, pktio_capa.max_output_queues);
 			return -1;
+		}
+
+		/* Input queue size capability concerns direct input mode only. In scheduler
+		 * mode the size is limited by scheduler capability. */
+		if (test_options->direct_rx && rx_size) {
+			uint32_t min_rx_size = pktio_capa.min_input_queue_size;
+			uint32_t max_rx_size = pktio_capa.max_input_queue_size;
+
+			if (max_rx_size == 0) {
+				ODPH_ERR("Error (%s): RX queue size configuration is not supported\n",
+					 name);
+				return -1;
+			}
+
+			if (rx_size < min_rx_size || rx_size > max_rx_size) {
+				ODPH_ERR("Error (%s): unsupported RX queue size %" PRIu32 " "
+					 "(min %" PRIu32 ", max %" PRIu32 ")\n", name, rx_size,
+					 min_rx_size, max_rx_size);
+				return -1;
+			}
+		}
+
+		if (tx_size) {
+			uint32_t min_tx_size = pktio_capa.min_output_queue_size;
+			uint32_t max_tx_size = pktio_capa.max_output_queue_size;
+
+			if (max_tx_size == 0) {
+				ODPH_ERR("Error (%s): TX queue size configuration is not supported\n",
+					 name);
+				return -1;
+			}
+
+			if (tx_size < min_tx_size || tx_size > max_tx_size) {
+				ODPH_ERR("Error (%s): unsupported TX queue size %" PRIu32 " "
+					 "(min %" PRIu32 ", max %" PRIu32 ")\n", name, tx_size,
+					 min_tx_size, max_tx_size);
+				return -1;
+			}
 		}
 
 		if (odp_pktio_mac_addr(pktio,
@@ -1719,15 +1841,19 @@ static int open_pktios(test_global_t *global)
 
 		odp_pktin_queue_param_init(&pktin_param);
 
+		pktin_param.num_queues = num_rx;
+
 		if (test_options->direct_rx) {
 			pktin_param.op_mode = ODP_PKTIO_OP_MT_UNSAFE;
+
+			for (j = 0; j < num_rx; j++)
+				pktin_param.queue_size[j] = rx_size;
 		} else {
 			pktin_param.queue_param.sched.prio  = odp_schedule_default_prio();
 			pktin_param.queue_param.sched.sync  = ODP_SCHED_SYNC_PARALLEL;
 			pktin_param.queue_param.sched.group = ODP_SCHED_GROUP_ALL;
+			pktin_param.queue_param.size        = rx_size;
 		}
-
-		pktin_param.num_queues = num_rx;
 
 		if (num_rx > 1) {
 			pktin_param.hash_enable = 1;
@@ -1743,13 +1869,16 @@ static int open_pktios(test_global_t *global)
 		pktout_param.op_mode = ODP_PKTIO_OP_MT_UNSAFE;
 		pktout_param.num_queues = num_tx;
 
+		for (j = 0; j < num_tx; j++)
+			pktout_param.queue_size[j] = tx_size;
+
 		if (odp_pktout_queue_config(pktio, &pktout_param)) {
 			ODPH_ERR("Error (%s): Pktout config failed.\n", name);
 			return -1;
 		}
 
 		if (num_tx > 0) {
-			odp_pktout_queue_t pktout[MAX_THREADS];
+			odp_pktout_queue_t pktout[MAX_WORKERS];
 
 			if (odp_pktout_queue(pktio, pktout, num_tx) != num_tx) {
 				ODPH_ERR("Error (%s): Pktout queue request failed.\n", name);
@@ -1761,7 +1890,7 @@ static int open_pktios(test_global_t *global)
 		}
 
 		if (num_rx > 0 && test_options->direct_rx) {
-			odp_pktin_queue_t pktin[MAX_THREADS];
+			odp_pktin_queue_t pktin[MAX_WORKERS];
 
 			if (odp_pktin_queue(pktio, pktin, num_rx) != num_rx) {
 				ODPH_ERR("Error (%s): Pktin queue request failed.\n", name);
@@ -1895,6 +2024,7 @@ static int rx_thread(void *arg)
 	test_global_t *global = thread_arg->global;
 	int direct_rx = global->test_options.direct_rx;
 	int periodic_stat = global->test_options.update_msec ? 1 : 0;
+	int verbose = global->test_options.verbose;
 	uint64_t rx_timeouts = 0;
 	uint64_t rx_packets = 0;
 	uint64_t rx_bytes = 0;
@@ -1985,6 +2115,15 @@ static int rx_thread(void *arg)
 		if (!clock_started) {
 			t1 = odp_time_local();
 			clock_started = 1;
+		}
+
+		if (odp_unlikely(verbose)) {
+			odp_spinlock_lock(&global->verbose_lock);
+
+			for (i = 0; i < num; i++)
+				odp_packet_print(pkt[i]);
+
+			odp_spinlock_unlock(&global->verbose_lock);
 		}
 
 		bytes = 0;
@@ -2282,15 +2421,53 @@ static int init_global_data(test_global_t *global)
 {
 	memset(global, 0, sizeof(test_global_t));
 	odp_atomic_init_u32(&global->exit_test, 0);
+	odp_spinlock_init(&global->verbose_lock);
+	global->thread_arg_shm = ODP_SHM_INVALID;
 
 	for (int i = 0; i < MAX_THREADS; i++) {
 		uint8_t *rand_data = (uint8_t *)global->rand_data[i];
 
 		if (odp_unlikely(update_rand_data(rand_data, RAND_16BIT_WORDS * 2)))
 			return -1;
-
-		global->thread_arg[i].global = global;
 	}
+	return 0;
+}
+
+static int create_thread_args(test_global_t *global)
+{
+	uint32_t i;
+	uint32_t num_cpu = global->test_options.num_cpu;
+	uint64_t size = num_cpu * sizeof(thread_arg_t);
+	odp_shm_t shm;
+
+	shm = odp_shm_reserve("packet_gen_thread_arg", size, ODP_CACHE_LINE_SIZE, 0);
+	if (shm == ODP_SHM_INVALID) {
+		ODPH_ERR("Error: Thread arg SHM reserve failed.\n");
+		return -1;
+	}
+
+	global->thread_arg_shm = shm;
+	global->thread_arg = odp_shm_addr(shm);
+	if (global->thread_arg == NULL) {
+		ODPH_ERR("Error: Thread arg SHM addr failed.\n");
+		return -1;
+	}
+
+	memset(global->thread_arg, 0, size);
+
+	for (i = 0; i < num_cpu; i++)
+		global->thread_arg[i].global = global;
+
+	return 0;
+}
+
+static int destroy_thread_args(test_global_t *global)
+{
+	if (global->thread_arg_shm != ODP_SHM_INVALID && odp_shm_free(global->thread_arg_shm)) {
+		ODPH_ERR("Error: Thread arg SHM free failed.\n");
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -2728,10 +2905,31 @@ static void periodic_print_loop(test_global_t *global)
 
 	t1 = odp_time_local();
 	while (odp_atomic_load_u32(&global->exit_test) == 0) {
+		if (sigint_received) {
+			odp_atomic_store_u32(&global->exit_test, 1);
+			break;
+		}
 		usleep(1000 * global->test_options.update_msec);
 		t2 = odp_time_local();
 		nsec = odp_time_diff_ns(t2, t1);
 		print_periodic_stat(global, nsec);
+	}
+}
+
+static void wait_for_exit(test_global_t *global)
+{
+	while (odp_atomic_load_u32(&global->exit_test) == 0) {
+		struct timespec ts = { .tv_sec = 0, .tv_nsec = 100 * 1000 * 1000 };
+
+		if (sigint_received) {
+			odp_atomic_store_u32(&global->exit_test, 1);
+			break;
+		}
+		/*
+		 * This gets interrupted by the signal. But the signal may have
+		 * already come.
+		 */
+		nanosleep(&ts, NULL);
 	}
 }
 
@@ -2913,14 +3111,64 @@ static int print_final_stat(test_global_t *global)
 	return 0;
 }
 
+static int config_scheduler(test_global_t *global)
+{
+	odp_schedule_capability_t sched_capa;
+	odp_schedule_config_t sched_config;
+	uint32_t max_size;
+	test_options_t *test_options = &global->test_options;
+	uint32_t rx_size = test_options->queue_size.rx;
+
+	if (odp_schedule_capability(&sched_capa)) {
+		ODPH_ERR("Error: Schedule capability failed.\n");
+		return -1;
+	}
+
+	printf("Scheduler capabilities\n");
+	printf("  max_queues:        %" PRIu32 "\n", sched_capa.max_queues);
+	printf("  max_queue_size:    %" PRIu32 "\n", sched_capa.max_queue_size);
+	printf("\n");
+
+	max_size = UINT32_MAX;
+	if (sched_capa.max_queue_size)
+		max_size = sched_capa.max_queue_size;
+
+	if (rx_size > max_size) {
+		ODPH_ERR("Error: Too large RX queue size: %" PRIu32 ". Max supported: %" PRIu32 "\n",
+			 rx_size, max_size);
+		return -1;
+	}
+
+	odp_schedule_config_init(&sched_config);
+	sched_config.queue_size = rx_size;
+
+	if (odp_schedule_config(&sched_config)) {
+		ODPH_ERR("Error: Schedule config failed.\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static void sig_handler(int signo)
 {
 	(void)signo;
 
-	if (test_global == NULL)
-		return;
+	sigint_received = 1;
+}
 
-	odp_atomic_add_u32(&test_global->exit_test, 1);
+static int setup_sig_handler(void)
+{
+	struct sigaction action;
+
+	memset(&action, 0, sizeof(action));
+	action.sa_handler = sig_handler;
+
+	if (sigemptyset(&action.sa_mask))
+		return -1;
+	if (sigaction(SIGINT, &action, NULL))
+		return -1;
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -2930,9 +3178,27 @@ int main(int argc, char **argv)
 	odp_init_t init;
 	test_global_t *global;
 	odp_shm_t shm;
+	sigset_t sigint_set;
 	int ret = 0;
 
-	signal(SIGINT, sig_handler);
+	/*
+	 * SIGINT may be ignored when this program is run from a script, so
+	 * install the handler before anything else.
+	 */
+	if (setup_sig_handler()) {
+		ODPH_ERR("Error: sigaction() failed: %s\n", strerror(errno));
+		return 1;
+	}
+
+	/*
+	 * We want SIGINT to be delivered to this initial thread/process.
+	 * Block it now so that child threads/processes inherit the blocking.
+	 */
+	if (sigemptyset(&sigint_set) || sigaddset(&sigint_set, SIGINT) ||
+	    pthread_sigmask(SIG_BLOCK, &sigint_set, NULL)) {
+		ODPH_ERR("Error: blocking SIGINT failed.\n");
+		return 1;
+	}
 
 	/* Let helper collect its own arguments (e.g. --odph_proc) */
 	argc = odph_parse_options(argc, argv);
@@ -2946,7 +3212,10 @@ int main(int argc, char **argv)
 	init.not_used.feat.cls      = 1;
 	init.not_used.feat.compress = 1;
 	init.not_used.feat.crypto   = 1;
+	init.not_used.feat.dma      = 1;
 	init.not_used.feat.ipsec    = 1;
+	init.not_used.feat.ml       = 1;
+	init.not_used.feat.stash    = 1;
 	init.not_used.feat.timer    = 1;
 	init.not_used.feat.tm       = 1;
 
@@ -2973,7 +3242,6 @@ int main(int argc, char **argv)
 	}
 
 	global = odp_shm_addr(shm);
-	test_global = global;
 
 	if (init_global_data(global)) {
 		ret = 1;
@@ -2985,11 +3253,20 @@ int main(int argc, char **argv)
 		goto term;
 	}
 
+	if (create_thread_args(global)) {
+		ret = 1;
+		goto term;
+	}
+
 	odp_sys_info_print();
 
 	/* Avoid all scheduler API calls in direct input mode */
-	if (global->test_options.direct_rx == 0)
-		odp_schedule_config(NULL);
+	if (global->test_options.direct_rx == 0) {
+		if (config_scheduler(global)) {
+			ret = 1;
+			goto term;
+		}
+	}
 
 	if (set_num_cpu(global)) {
 		ret = 1;
@@ -3017,9 +3294,20 @@ int main(int argc, char **argv)
 	/* Wait until workers have started. */
 	odp_barrier_wait(&global->barrier);
 
+	/*
+	 * Unblock SIGINT for this thread. If the signal is already pending,
+	 * it gets delivered now.
+	 */
+	if (pthread_sigmask(SIG_UNBLOCK, &sigint_set, NULL)) {
+		ODPH_ERR("Error: unblocking SIGINT failed.\n");
+		odp_atomic_store_u32(&global->exit_test, 1);
+	}
+
 	/* Periodic statistics printing */
 	if (global->test_options.update_msec)
 		periodic_print_loop(global);
+	else
+		wait_for_exit(global);
 
 	/* Wait workers to exit */
 	odph_thread_join(global->thread_tbl,
@@ -3042,6 +3330,11 @@ int main(int argc, char **argv)
 term:
 	if (destroy_packet_pool(global)) {
 		ODPH_ERR("Error: destroy_packet_pool() failed.\n");
+		return 1;
+	}
+
+	if (destroy_thread_args(global)) {
+		ODPH_ERR("Error: destroy_thread_args() failed.\n");
 		return 1;
 	}
 

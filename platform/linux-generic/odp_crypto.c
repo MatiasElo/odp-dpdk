@@ -1,13 +1,15 @@
 /* SPDX-License-Identifier: BSD-3-Clause
- * Copyright (c) 2025 Nokia
+ * Copyright (c) 2025-2026 Nokia
  */
 
 #include <odp/api/crypto.h>
+#include <odp/api/hints.h>
 #include <odp/api/pool.h>
 #include <odp/api/queue.h>
 
 #include <odp_crypto_internal.h>
 #include <odp_debug_internal.h>
+#include <odp_pending_queue_internal.h>
 #include <odp_string_internal.h>
 
 #include <inttypes.h>
@@ -193,7 +195,7 @@ void _odp_crypto_session_print(const char *type, uint32_t index,
 	len += _odp_snprint(&str[len], n - len, "  cipher_alg                %s\n",
 			    cipher_alg_name(param->cipher_alg));
 	len += _odp_snprint(&str[len], n - len, "  cipher_key.data           %p\n",
-			    param->cipher_key.data);
+			    (void *)param->cipher_key.data);
 	len += _odp_snprint(&str[len], n - len, "  cipher_key.length         %" PRIu32 "\n",
 			    param->cipher_key.length);
 	len += _odp_snprint(&str[len], n - len, "  cipher_iv_len             %" PRIu32 "\n",
@@ -201,7 +203,7 @@ void _odp_crypto_session_print(const char *type, uint32_t index,
 	len += _odp_snprint(&str[len], n - len, "  auth_alg                  %s\n",
 			    auth_alg_name(param->auth_alg));
 	len += _odp_snprint(&str[len], n - len, "  auth_key.data             %p\n",
-			    param->auth_key.data);
+			    (void *)param->auth_key.data);
 	len += _odp_snprint(&str[len], n - len, "  auth_key.length           %" PRIu32 "\n",
 			    param->auth_key.length);
 	len += _odp_snprint(&str[len], n - len, "  auth_iv_len               %" PRIu32 "\n",
@@ -212,7 +214,51 @@ void _odp_crypto_session_print(const char *type, uint32_t index,
 			    param->auth_aad_len);
 	len += _odp_snprint(&str[len], n - len, "  compl_queue               %" PRIu64 "\n",
 			    odp_queue_to_u64(param->compl_queue));
+#if ODP_DEPRECATED_API
 	len += _odp_snprint(&str[len], n - len, "  output_pool               %" PRIu64 "\n",
 			    odp_pool_to_u64(param->output_pool));
+#endif
 	_ODP_PRINT("%s\n", str);
+}
+
+void _odp_crypto_enqueue_completions(_odp_pending_queue_t *pending,
+				     const odp_event_t events[],
+				     const odp_queue_t queues[],
+				     int num)
+{
+	odp_queue_t queue;
+	int num_enqueued = 0;
+	int rc;
+
+	if (odp_unlikely(num <= 0))
+		return;
+
+	queue = queues[0];
+
+	for (int i = 1; i < num; i++) {
+		if (queues[i] != queue) {
+			rc = odp_queue_enq_multi(queue, &events[num_enqueued], i - num_enqueued);
+			if (odp_unlikely(rc != i - num_enqueued)) {
+				/*
+				 * Do not continue with the rest of the burst
+				 * to preserve event ordering.
+				 */
+				goto defer;
+			}
+			num_enqueued = i;
+			queue = queues[i];
+		}
+	}
+
+	rc = odp_queue_enq_multi(queue, &events[num_enqueued], num - num_enqueued);
+	if (odp_likely(rc == num - num_enqueued))
+		return;
+
+defer:
+	if (rc < 0)
+		rc = 0;
+	num_enqueued += rc;
+	/* Completion queue is full. Retry enqueuing the rest later. */
+	_odp_pending_queue_defer(pending, &events[num_enqueued], &queues[num_enqueued],
+				 num - num_enqueued);
 }

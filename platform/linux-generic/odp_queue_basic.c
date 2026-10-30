@@ -73,6 +73,16 @@ static int queue_capa(odp_queue_capability_t *capa, int sched ODP_UNUSED)
 	capa->plain.aggr.min_size = 2;
 	capa->plain.aggr.max_tmo_ns = 0;
 	capa->plain.aggr.min_tmo_ns = 0;
+	capa->plain.aggr.source.bit.queue = 1;
+	capa->plain.aggr.source.bit.pktin = 1;
+	capa->plain.aggr.source.bit.tx_compl = 1;
+	capa->plain.aggr.source.bit.cls = 1;
+	capa->plain.aggr.source.bit.timer = 1;
+	capa->plain.aggr.source.bit.crypto = 1;
+	capa->plain.aggr.source.bit.comp = 1;
+	capa->plain.aggr.source.bit.ipsec = 1;
+	capa->plain.aggr.source.bit.dma = 1;
+	capa->plain.aggr.source.bit.ml = 1;
 	capa->plain.aggr.stats.bit.len = 1;
 
 	return 0;
@@ -888,7 +898,8 @@ static int queue_api_enq_aggr(odp_queue_t handle, odp_event_t ev,
 	if (odp_unlikely(base_queue->pktin.pktio != ODP_PKTIO_INVALID))
 		return base_queue->enqueue(base_queue->handle, (_odp_event_hdr_t *)(uintptr_t)ev);
 
-	/* Cannot stash events as ordered_stash_release() ignores odp_aggr_enq_param_t */
+	/* Cannot stash events as ordered_stash_release() ignores odp_aggr_enq_param_t. Wait for
+	 * order before taking the aggregator lock, so that events end up in correct order. */
 	_odp_sched_fn->ord_stash_release(handle);
 
 	odp_ticketlock_lock(&aggr->lock);
@@ -1134,9 +1145,10 @@ static void event_aggr_print(queue_entry_t *aggr_queue)
 			    (void *)aggr_queue->handle);
 	len += _odp_snprint(&str[len], n - len, "  index           %" PRIu32 "\n",
 			    aggr_queue->index);
-	len += _odp_snprint(&str[len], n - len, "  base queue      %p\n", base_queue->handle);
+	len += _odp_snprint(&str[len], n - len, "  base queue      %p\n",
+			    (void *)base_queue->handle);
 	len += _odp_snprint(&str[len], n - len, "  base queue name %s\n", base_queue->name);
-	len += _odp_snprint(&str[len], n - len, "  pool            %p\n", aggr->pool);
+	len += _odp_snprint(&str[len], n - len, "  pool            %p\n", (void *)aggr->pool);
 	len += _odp_snprint(&str[len], n - len, "  event type      %" PRIu32 "\n",
 			    aggr->event_type);
 	len += _odp_snprint(&str[len], n - len, "  num events      %" PRIu16 "\n", num_events);
