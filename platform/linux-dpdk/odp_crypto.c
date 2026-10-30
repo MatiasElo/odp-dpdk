@@ -1754,7 +1754,6 @@ void odp_crypto_session_param_init(odp_crypto_session_param_t *param)
 	param->op_mode = ODP_CRYPTO_SYNC;
 	param->cipher_alg = ODP_CIPHER_ALG_NULL;
 	param->auth_alg = ODP_AUTH_ALG_NULL;
-	param->output_pool = ODP_POOL_INVALID;
 }
 
 uint64_t odp_crypto_session_to_u64(odp_crypto_session_t hdl)
