@@ -93,6 +93,11 @@ static inline odp_pool_t _odp_event_pool(odp_event_t event)
 	return _odp_event_hdr(event)->pool;
 }
 
+static inline uint32_t _odp_event_index(odp_event_t event)
+{
+	return _odp_event_hdr(event)->index.event;
+}
+
 #ifdef __cplusplus
 }
 #endif
