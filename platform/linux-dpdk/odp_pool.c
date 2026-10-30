@@ -4,6 +4,7 @@
  */
 
 #include <odp/api/align.h>
+#include <odp/api/deprecated.h>
 #include <odp/api/hints.h>
 #include <odp/api/pool.h>
 #include <odp/api/shared_memory.h>
@@ -310,14 +311,14 @@ int odp_pool_capability(odp_pool_capability_t *capa)
 	capa->tmo.stats.all = supported_stats.all;
 
 	/* Packet vector pools */
-	capa->vector.max_pools      = max_pools;
-	capa->vector.max_num        = CONFIG_POOL_MAX_NUM;
-	capa->vector.max_uarea_size   = MAX_UAREA_SIZE;
-	capa->vector.uarea_persistence = true;
-	capa->vector.max_size       = CONFIG_PACKET_VECTOR_MAX_SIZE;
-	capa->vector.min_cache_size = 0;
-	capa->vector.max_cache_size = RTE_MEMPOOL_CACHE_MAX_SIZE;
-	capa->vector.stats.all = supported_stats.all;
+	capa->ODP_DEPRECATE(vector).max_pools      = max_pools;
+	capa->ODP_DEPRECATE(vector).max_num        = CONFIG_POOL_MAX_NUM;
+	capa->ODP_DEPRECATE(vector).max_uarea_size   = MAX_UAREA_SIZE;
+	capa->ODP_DEPRECATE(vector).uarea_persistence = true;
+	capa->ODP_DEPRECATE(vector).max_size       = CONFIG_PACKET_VECTOR_MAX_SIZE;
+	capa->ODP_DEPRECATE(vector).min_cache_size = 0;
+	capa->ODP_DEPRECATE(vector).max_cache_size = RTE_MEMPOOL_CACHE_MAX_SIZE;
+	capa->ODP_DEPRECATE(vector).stats.all = supported_stats.all;
 
 	/* Event vector pools */
 	capa->event_vector.max_pools = max_pools;
@@ -472,38 +473,43 @@ static int check_params(const odp_pool_param_t *params)
 
 		break;
 
-	case ODP_POOL_VECTOR:
-		if (params->vector.num == 0) {
+	case ODP_DEPRECATE(ODP_POOL_VECTOR):
+		if (params->ODP_DEPRECATE(vector).num == 0) {
 			_ODP_ERR("vector.num zero\n");
 			return -1;
 		}
 
-		if (params->vector.num > capa.vector.max_num) {
-			_ODP_ERR("vector.num too large %u\n", params->vector.num);
+		if (params->ODP_DEPRECATE(vector).num > capa.ODP_DEPRECATE(vector).max_num) {
+			_ODP_ERR("vector.num too large %u\n", params->ODP_DEPRECATE(vector).num);
 			return -1;
 		}
 
-		if (params->vector.max_size == 0) {
+		if (params->ODP_DEPRECATE(vector).max_size == 0) {
 			_ODP_ERR("vector.max_size zero\n");
 			return -1;
 		}
 
-		if (params->vector.max_size > capa.vector.max_size) {
-			_ODP_ERR("vector.max_size too large %u\n", params->vector.max_size);
+		if (params->ODP_DEPRECATE(vector).max_size > capa.ODP_DEPRECATE(vector).max_size) {
+			_ODP_ERR("vector.max_size too large %u\n",
+				 params->ODP_DEPRECATE(vector).max_size);
 			return -1;
 		}
 
-		if (params->vector.cache_size > capa.vector.max_cache_size) {
-			_ODP_ERR("vector.cache_size too large %u\n", params->vector.cache_size);
+		if (params->ODP_DEPRECATE(vector).cache_size >
+		    capa.ODP_DEPRECATE(vector).max_cache_size) {
+			_ODP_ERR("vector.cache_size too large %u\n",
+				 params->ODP_DEPRECATE(vector).cache_size);
 			return -1;
 		}
 
-		if (params->vector.uarea_size > capa.vector.max_uarea_size) {
-			_ODP_ERR("vector.uarea_size too large %u\n", params->vector.uarea_size);
+		if (params->ODP_DEPRECATE(vector).uarea_size >
+		    capa.ODP_DEPRECATE(vector).max_uarea_size) {
+			_ODP_ERR("vector.uarea_size too large %u\n",
+				 params->ODP_DEPRECATE(vector).uarea_size);
 			return -1;
 		}
 
-		if (params->stats.all & ~capa.vector.stats.all) {
+		if (params->stats.all & ~capa.ODP_DEPRECATE(vector).stats.all) {
 			_ODP_ERR("Unsupported pool statistics counter\n");
 			return -1;
 		}
@@ -701,7 +707,7 @@ static void init_obj_priv_data(struct rte_mempool *mp ODP_UNUSED, void *arg, voi
 	case ODP_POOL_TIMEOUT:
 		obj_uarea = &((odp_timeout_hdr_t *)mbuf)->uarea_addr;
 		break;
-	case ODP_POOL_VECTOR:
+	case ODP_DEPRECATE(ODP_POOL_VECTOR):
 	case ODP_POOL_EVENT_VECTOR:
 		evv_hdr = (odp_event_vector_hdr_t *)mbuf;
 		evv_hdr->event_type = ODP_EVENT_ANY;
@@ -788,14 +794,14 @@ odp_pool_t _odp_pool_create(const char *name, const odp_pool_param_t *params,
 		uarea_size = params->tmo.uarea_size;
 		priv_data.event_type = ODP_EVENT_TIMEOUT;
 		break;
-	case ODP_POOL_VECTOR:
-		num = params->vector.num;
-		cache_size = params->vector.cache_size;
+	case ODP_DEPRECATE(ODP_POOL_VECTOR):
+		num = params->ODP_DEPRECATE(vector).num;
+		cache_size = params->ODP_DEPRECATE(vector).cache_size;
 		priv_size = get_mbuf_priv_size(sizeof(odp_event_vector_hdr_t) +
-					       params->vector.max_size * sizeof(odp_packet_t));
+				params->ODP_DEPRECATE(vector).max_size * sizeof(odp_packet_t));
 		data_size = 0;
-		uarea_size = params->vector.uarea_size;
-		priv_data.event_type = ODP_EVENT_PACKET_VECTOR;
+		uarea_size = params->ODP_DEPRECATE(vector).uarea_size;
+		priv_data.event_type = ODP_DEPRECATE(ODP_EVENT_PACKET_VECTOR);
 		break;
 	case ODP_POOL_EVENT_VECTOR:
 		num = params->event_vector.num;
@@ -940,7 +946,7 @@ static const char *get_long_type_str(odp_pool_type_t type)
 		return "packet";
 	case ODP_POOL_TIMEOUT:
 		return "timeout";
-	case ODP_POOL_VECTOR:
+	case ODP_DEPRECATE(ODP_POOL_VECTOR):
 		return "packet vector";
 	case ODP_POOL_EVENT_VECTOR:
 		return "event vector";
@@ -962,7 +968,7 @@ static const char *get_short_type_str(odp_pool_type_t type)
 		return "P";
 	case ODP_POOL_TIMEOUT:
 		return "T";
-	case ODP_POOL_VECTOR:
+	case ODP_DEPRECATE(ODP_POOL_VECTOR):
 		return "V";
 	case ODP_POOL_EVENT_VECTOR:
 		return "E";
@@ -1141,7 +1147,7 @@ void odp_pool_param_init(odp_pool_param_t *params)
 	params->buf.cache_size = RTE_MEMPOOL_CACHE_MAX_SIZE;
 	params->pkt.cache_size = RTE_MEMPOOL_CACHE_MAX_SIZE;
 	params->tmo.cache_size = RTE_MEMPOOL_CACHE_MAX_SIZE;
-	params->vector.cache_size = RTE_MEMPOOL_CACHE_MAX_SIZE;
+	params->ODP_DEPRECATE(vector).cache_size = RTE_MEMPOOL_CACHE_MAX_SIZE;
 	params->event_vector.cache_size = RTE_MEMPOOL_CACHE_MAX_SIZE;
 }
 
@@ -1239,7 +1245,7 @@ int odp_pool_ext_capability(odp_pool_type_t type,
 		break;
 	case ODP_POOL_BUFFER:
 	case ODP_POOL_TIMEOUT:
-	case ODP_POOL_VECTOR:
+	case ODP_DEPRECATE(ODP_POOL_VECTOR):
 	case ODP_POOL_EVENT_VECTOR:
 	case ODP_POOL_DMA_COMPL:
 	case ODP_POOL_ML_COMPL:
@@ -1526,7 +1532,7 @@ static void init_ext_obj(struct rte_mempool *mp, void *arg, void *mbuf, unsigned
 	case ODP_POOL_TIMEOUT:
 		obj_uarea = &((odp_timeout_hdr_t *)mbuf)->uarea_addr;
 		break;
-	case ODP_POOL_VECTOR:
+	case ODP_DEPRECATE(ODP_POOL_VECTOR):
 	case ODP_POOL_EVENT_VECTOR:
 		evv_hdr = (odp_event_vector_hdr_t *)mbuf;
 		evv_hdr->event_type = ODP_EVENT_ANY;
