@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause
- * Copyright (c) 2021-2023 Nokia
+ * Copyright (c) 2021-2026 Nokia
  */
 
 /**
@@ -92,6 +92,11 @@ static inline uint64_t *_odp_event_endmark_get_ptr(odp_event_t event)
 static inline odp_pool_t _odp_event_pool(odp_event_t event)
 {
 	return _odp_event_hdr(event)->hdr.pool;
+}
+
+static inline uint32_t _odp_event_index(odp_event_t event)
+{
+	return _odp_event_hdr(event)->hdr.index;
 }
 
 #ifdef __cplusplus
