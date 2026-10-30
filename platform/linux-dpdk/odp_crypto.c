@@ -2388,7 +2388,7 @@ int odp_crypto_op(const odp_packet_t pkt_in[],
 }
 
 static void defer_completions(const odp_packet_t pkts[],
-			      const odp_crypto_packet_op_param_t param[],
+			      const odp_queue_t queues[],
 			      int num_pkt)
 {
 	pending_queue_t *pending = &global->pending;
@@ -2400,7 +2400,6 @@ static void defer_completions(const odp_packet_t pkts[],
 	_ODP_DBG("Deferring %i completion events\n", num_pkt);
 
 	for (int i = 0; i < num_pkt; i++) {
-		crypto_session_entry_t *session = session_from_handle(param[i].session);
 		uint32_t tail = pending->head + num;
 
 		if (tail >= pending->size)
@@ -2408,7 +2407,7 @@ static void defer_completions(const odp_packet_t pkts[],
 
 		_ODP_ASSERT(num < pending->size);
 		pending->ring[tail].pkt = pkts[i];
-		pending->ring[tail].queue = session->p.compl_queue;
+		pending->ring[tail].queue = queues[i];
 		num++;
 	}
 	odp_atomic_store_u32(&pending->num, num);
@@ -2442,15 +2441,45 @@ static uint32_t retry_pending_completions(void)
 	return num;
 }
 
+static void enqueue_completions(const odp_packet_t pkts[],
+				const odp_queue_t queues[],
+				int num)
+{
+	odp_event_t events[MAX_BURST];
+	int first = 0;
+
+	for (int i = 0; i < num; i++)
+		events[i] = odp_packet_to_event(pkts[i]);
+
+	while (first < num) {
+		odp_queue_t queue = queues[first];
+		int n = 1;
+		int rc;
+
+		while (first + n < num && queues[first + n] == queue)
+			n++;
+
+		rc = odp_queue_enq_multi(queue, &events[first], n);
+		if (odp_unlikely(rc != n)) {
+			if (rc > 0)
+				first += rc;
+			/* Completion queue is full. Retry enqueuing later. */
+			defer_completions(&pkts[first], &queues[first], num - first);
+			return;
+		}
+		first += n;
+	}
+}
+
 int odp_crypto_op_enq(const odp_packet_t pkt_in[],
 		      const odp_packet_t pkt_out[],
 		      const odp_crypto_packet_op_param_t param[],
 		      int num_pkt)
 {
-	odp_event_t event;
 	crypto_session_entry_t *session;
 	int i;
 	odp_packet_t out_pkts[MAX_BURST];
+	odp_queue_t queues[MAX_BURST];
 
 	if (num_pkt > MAX_BURST)
 		num_pkt = MAX_BURST;
@@ -2470,13 +2499,9 @@ int odp_crypto_op_enq(const odp_packet_t pkt_in[],
 
 	for (i = 0; i < num_pkt; i++) {
 		session = session_from_handle(param[i].session);
-		event = odp_packet_to_event(out_pkts[i]);
-		if (odp_unlikely(odp_queue_enq(session->p.compl_queue, event))) {
-			/* Completion queue is full. Retry enqueuing later. */
-			defer_completions(&out_pkts[i], &param[i], num_pkt - i);
-			break;
-		}
+		queues[i] = session->p.compl_queue;
 	}
+	enqueue_completions(out_pkts, queues, num_pkt);
 
 	return num_pkt;
 }
