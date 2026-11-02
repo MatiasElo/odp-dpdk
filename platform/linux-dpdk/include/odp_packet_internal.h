@@ -268,7 +268,7 @@ static inline int _odp_packet_copy_md_possible(odp_pool_t dst_pool,
 	src_hdr = _odp_pool_entry(src_pool);
 	dst_hdr = _odp_pool_entry(dst_pool);
 
-	if (dst_hdr->params.pkt.uarea_size < src_hdr->params.pkt.uarea_size)
+	if (dst_hdr->param_uarea_size < src_hdr->param_uarea_size)
 		return -1;
 
 	return 1;
@@ -331,8 +331,8 @@ static inline void _odp_packet_copy_md(odp_packet_hdr_t *restrict dst_hdr,
 		if (uarea_copy) {
 			const pool_t *src_pool = _odp_pool_entry(src_hdr->event_hdr.pool);
 			const pool_t *dst_pool = _odp_pool_entry(dst_hdr->event_hdr.pool);
-			const uint32_t src_uarea_size = src_pool->params.pkt.uarea_size;
-			const uint32_t dst_uarea_size = dst_pool->params.pkt.uarea_size;
+			const uint32_t src_uarea_size = src_pool->param_uarea_size;
+			const uint32_t dst_uarea_size = dst_pool->param_uarea_size;
 
 			_ODP_ASSERT(dst_hdr->uarea_addr != NULL);
 			_ODP_ASSERT(dst_uarea_size >= src_uarea_size);
