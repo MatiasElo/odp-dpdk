@@ -1399,11 +1399,12 @@ static int check_pool_ext_param(const odp_pool_ext_param_t *param)
 odp_pool_t odp_pool_ext_create(const char *name,
 			       const odp_pool_ext_param_t *params)
 {
-	odp_pool_t pool_hdl = ODP_POOL_INVALID;
+	struct rte_mempool *mp = NULL;
 	unsigned int i, cache_size;
 	size_t hdr_size, priv_size;
-	pool_t *pool;
-	uint32_t buf_size, blk_size;
+	pool_t *pool = NULL;
+	uint32_t buf_size, blk_size, num, uarea_size;
+	const char *type_str;
 	char pool_name[ODP_POOL_NAME_LEN];
 	char rte_name[RTE_MEMPOOL_NAMESIZE];
 
@@ -1415,111 +1416,105 @@ odp_pool_t odp_pool_ext_create(const char *name,
 	else
 		_odp_strcpy(pool_name, name, ODP_POOL_NAME_LEN);
 
-	/* Find an unused buffer pool slot and initialize it as requested */
+	/* Find an unused buffer pool slot */
 	for (i = 0; i < CONFIG_POOLS; i++) {
-		uint32_t num, uarea_size;
-		struct rte_mempool *mp;
-		const char *type_str;
+		pool_t *p = _odp_pool_entry_from_idx(i);
 
-		pool = _odp_pool_entry_from_idx(i);
-
-		odp_ticketlock_lock(&pool->lock);
-		if (pool->rte_mempool != NULL) {
-			odp_ticketlock_unlock(&pool->lock);
-			continue;
+		odp_ticketlock_lock(&p->lock);
+		if (p->rte_mempool == NULL) {
+			pool = p;
+			break; /* Keep the lock */
 		}
-
-		memset(&pool->memset_mark, 0,
-		       sizeof(pool_t) - offsetof(pool_t, memset_mark));
-
-		if (params->type == ODP_POOL_BUFFER) {
-			type_str = "buffer";
-			hdr_size = sizeof(odp_buffer_hdr_t) + params->buf.app_header_size;
-			buf_size = params->buf.buf_size;
-			num = params->buf.num_buf;
-			uarea_size = params->buf.uarea_size;
-		} else {
-			type_str = "packet";
-			hdr_size = sizeof(odp_packet_hdr_t) + params->pkt.app_header_size;
-			buf_size = params->pkt.buf_size;
-			num = params->pkt.num_buf;
-			uarea_size = params->pkt.uarea_size;
-		}
-		blk_size = buf_size - SIZEOF_OBJHDR - hdr_size;
-		priv_size = hdr_size - sizeof(struct rte_mbuf);
-
-		_ODP_DBG("type: %s, name: %s, num: %u, len: %u, blk_size: %u, "
-			 "uarea_size: %d, hdr_size: %zu\n",
-			 type_str, pool_name, num, buf_size, blk_size,
-			 uarea_size, hdr_size);
-
-		cache_size = params->cache_size;
-		cache_size = calc_cache_size(num, cache_size);
-
-		format_pool_name(pool_name, rte_name);
-
-		mp = rte_mempool_create_empty(
-			rte_name, num, blk_size, cache_size,
-			sizeof(struct rte_pktmbuf_pool_private),
-			rte_socket_id(), 0);
-
-		if (mp == NULL) {
-			_ODP_ERR("Failed to create empty DPDK packet pool\n");
-			goto error;
-		}
-
-		if (rte_mempool_set_ops_byname(mp, rte_mbuf_best_mempool_ops(),
-					       NULL)) {
-			_ODP_ERR("Failed setting mempool operations\n");
-			goto error;
-		}
-
-		struct rte_pktmbuf_pool_private mbp_priv = {
-			.mbuf_data_room_size = blk_size,
-			.mbuf_priv_size = priv_size,
-		};
-
-		rte_pktmbuf_pool_init(mp, &mbp_priv);
-
-		/*
-		 * Would like to call rte_mempool_ops_alloc(), but it doesn't
-		 * appear to be included in the libraries provided by Ubuntu or
-		 * Fedora.
-		 */
-		if (rte_mempool_get_ops(mp->ops_index)->alloc(mp)) {
-			_ODP_ERR("Mempool alloc operation failed\n");
-			goto error;
-		}
-
-		pool->ext_param = *params;
-		pool->ext_head_offset = hdr_size;
-		pool->trailer_size = _ODP_EV_ENDMARK_SIZE;
-		pool->num = num;
-		pool->num_populated = 0;
-		pool->pool_ext = 1;
-		pool->seg_len = blk_size - pool->trailer_size;
-		pool->type = params->type;
-		pool->type_2 = params->type;
-		strcpy(pool->name, pool_name);
-
-		if (reserve_uarea(pool, uarea_size, num)) {
-			_ODP_ERR("User area SHM reserve failed\n");
-			goto error;
-		}
-
-		pool->rte_mempool = mp;
-		_ODP_DBG("Header/element/trailer size: %u/%u/%u, total pool size: %lu\n",
-			 mp->header_size, mp->elt_size, mp->trailer_size,
-			 (unsigned long)((mp->header_size + mp->elt_size +
-					  mp->trailer_size) * num));
-		odp_ticketlock_unlock(&pool->lock);
-		pool_hdl = _odp_pool_handle(pool);
-		break;
+		odp_ticketlock_unlock(&p->lock);
 	}
 
-	return pool_hdl;
+	if (!pool)
+		return ODP_POOL_INVALID;
+
+	memset(&pool->memset_mark, 0, sizeof(pool_t) - offsetof(pool_t, memset_mark));
+
+	if (params->type == ODP_POOL_BUFFER) {
+		type_str = "buffer";
+		hdr_size = sizeof(odp_buffer_hdr_t) + params->buf.app_header_size;
+		buf_size = params->buf.buf_size;
+		num = params->buf.num_buf;
+		uarea_size = params->buf.uarea_size;
+	} else {
+		type_str = "packet";
+		hdr_size = sizeof(odp_packet_hdr_t) + params->pkt.app_header_size;
+		buf_size = params->pkt.buf_size;
+		num = params->pkt.num_buf;
+		uarea_size = params->pkt.uarea_size;
+	}
+	blk_size = buf_size - SIZEOF_OBJHDR - hdr_size;
+	priv_size = hdr_size - sizeof(struct rte_mbuf);
+
+	_ODP_DBG("type: %s, name: %s, num: %u, len: %u, blk_size: %u, uarea_size: %d, "
+		 "hdr_size: %zu\n", type_str, pool_name, num, buf_size, blk_size, uarea_size,
+		 hdr_size);
+
+	cache_size = params->cache_size;
+	cache_size = calc_cache_size(num, cache_size);
+
+	format_pool_name(pool_name, rte_name);
+
+	mp = rte_mempool_create_empty(rte_name, num, blk_size, cache_size,
+				      sizeof(struct rte_pktmbuf_pool_private), rte_socket_id(), 0);
+
+	if (mp == NULL) {
+		_ODP_ERR("Failed to create empty DPDK packet pool\n");
+		goto error;
+	}
+
+	if (rte_mempool_set_ops_byname(mp, rte_mbuf_best_mempool_ops(), NULL)) {
+		_ODP_ERR("Failed setting mempool operations\n");
+		goto error;
+	}
+
+	struct rte_pktmbuf_pool_private mbp_priv = {
+		.mbuf_data_room_size = blk_size,
+		.mbuf_priv_size = priv_size,
+	};
+
+	rte_pktmbuf_pool_init(mp, &mbp_priv);
+
+	/*
+	 * Would like to call rte_mempool_ops_alloc(), but it doesn't
+	 * appear to be included in the libraries provided by Ubuntu or
+	 * Fedora.
+	 */
+	if (rte_mempool_get_ops(mp->ops_index)->alloc(mp)) {
+		_ODP_ERR("Mempool alloc operation failed\n");
+		goto error;
+	}
+
+	pool->ext_param = *params;
+	pool->ext_head_offset = hdr_size;
+	pool->trailer_size = _ODP_EV_ENDMARK_SIZE;
+	pool->num = num;
+	pool->num_populated = 0;
+	pool->pool_ext = 1;
+	pool->seg_len = blk_size - pool->trailer_size;
+	pool->type = params->type;
+	pool->type_2 = params->type;
+	strcpy(pool->name, pool_name);
+
+	if (reserve_uarea(pool, uarea_size, num)) {
+		_ODP_ERR("User area SHM reserve failed\n");
+		goto error;
+	}
+
+	pool->rte_mempool = mp;
+	_ODP_DBG("Header/element/trailer size: %u/%u/%u, total pool size: %lu\n",
+		 mp->header_size, mp->elt_size, mp->trailer_size,
+		 (unsigned long)((mp->header_size + mp->elt_size + mp->trailer_size) * num));
+	odp_ticketlock_unlock(&pool->lock);
+
+	return _odp_pool_handle(pool);
 
 error:
+	if (mp)
+		rte_mempool_free(mp);
 	odp_ticketlock_unlock(&pool->lock);
 	return ODP_POOL_INVALID;
 }
