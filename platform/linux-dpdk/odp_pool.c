@@ -1611,6 +1611,9 @@ int odp_pool_ext_populate(odp_pool_t pool_hdl, void *buf[], uint32_t buf_size,
 	pool_t *pool;
 	uint32_t num_populated, expected_buf_size;
 	uint32_t hdr_offset;
+	struct rte_mempool *mp;
+	struct rte_mempool_memhdr **memhdrs;
+	void **mbufs;
 
 	if (pool_hdl == ODP_POOL_INVALID) {
 		_ODP_ERR("Bad pool handle\n");
@@ -1656,16 +1659,11 @@ int odp_pool_ext_populate(odp_pool_t pool_hdl, void *buf[], uint32_t buf_size,
 		return -1;
 	}
 
-	struct rte_mempool *mp = pool->rte_mempool;
+	if (num == 0)
+		return 0;
 
+	/* Validate all buffers before modifying anything, so that a failed call is a no-op */
 	for (uint32_t i = 0; i < num; i++) {
-		struct rte_mempool_objhdr *hdr;
-		struct rte_mempool_memhdr *memhdr;
-		struct rte_mbuf *mb =
-			(struct rte_mbuf *)((uintptr_t)buf[i] + SIZEOF_OBJHDR);
-		struct odp_pool_ext_param_t *params = &pool->ext_param;
-		struct mbuf_ctor_arg mb_ctor_arg;
-
 		/*
 		 * rte_mbuf must be cache line aligned, so that is our
 		 * requirement also for buffers.
@@ -1675,22 +1673,44 @@ int odp_pool_ext_populate(odp_pool_t pool_hdl, void *buf[], uint32_t buf_size,
 				 buf[i]);
 			return -1;
 		}
+	}
 
-		if (rte_mempool_ops_enqueue_bulk(mp, (void *const *)&mb, 1) < 0) {
-			_ODP_ERR("Failed to enqueue buffer to rte_mempool\n");
-			return -1;
-		}
+	/* Table of 'num' mbuf pointers followed by 'num' memhdr pointers */
+	mbufs = calloc(2 * (size_t)num, sizeof(void *));
+	if (mbufs == NULL) {
+		_ODP_ERR("Failed to allocate temporary tables\n");
+		return -1;
+	}
+	memhdrs = (struct rte_mempool_memhdr **)&mbufs[num];
 
-		/*
-		 * Since we don't know anything about the caller's memory areas,
-		 * or even the page size, make a memhdr for each buffer.
-		 */
-		memhdr = rte_zmalloc(NULL, sizeof(*memhdr), 0);
+	/* Do all the steps that may fail before modifying the pool */
+	for (uint32_t i = 0; i < num; i++) {
+		memhdrs[i] = rte_zmalloc(NULL, sizeof(struct rte_mempool_memhdr), 0);
 
-		if (!memhdr) {
+		if (!memhdrs[i]) {
 			_ODP_ERR("Failed to allocate rte_mempool_memhdr\n");
-			return -1;
+			goto error;
 		}
+
+		mbufs[i] = (void *)((uintptr_t)buf[i] + SIZEOF_OBJHDR);
+	}
+
+	mp = pool->rte_mempool;
+	if (rte_mempool_ops_enqueue_bulk(mp, mbufs, num) < 0) {
+		_ODP_ERR("Failed to enqueue buffers to rte_mempool\n");
+		goto error;
+	}
+
+	/*
+	 * Since we don't know anything about the caller's memory areas,
+	 * or even the page size, make a memhdr for each buffer.
+	 */
+	for (uint32_t i = 0; i < num; i++) {
+		struct rte_mempool_objhdr *hdr;
+		struct rte_mempool_memhdr *memhdr = memhdrs[i];
+		struct rte_mbuf *mb = mbufs[i];
+		struct odp_pool_ext_param_t *params = &pool->ext_param;
+		struct mbuf_ctor_arg mb_ctor_arg;
 
 		memhdr->mp = mp;
 		memhdr->addr = mb;
@@ -1714,5 +1734,13 @@ int odp_pool_ext_populate(odp_pool_t pool_hdl, void *buf[], uint32_t buf_size,
 		pool->num_populated++;
 	}
 
+	free(mbufs);
 	return 0;
+
+error:
+	for (uint32_t i = 0; i < num; i++)
+		rte_free(memhdrs[i]);
+
+	free(mbufs);
+	return -1;
 }
