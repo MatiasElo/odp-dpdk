@@ -1544,6 +1544,11 @@ int odp_crypto_session_create(const odp_crypto_session_param_t *param,
 		*session_out = ODP_CRYPTO_SESSION_INVALID;
 		return -1;
 	}
+	if (param->auth_aad_len_in_bits && !_odp_crypto_aad_len_ignored(param->auth_alg)) {
+		*status = ODP_CRYPTO_SES_ERR_AUTH;
+		*session_out = ODP_CRYPTO_SESSION_INVALID;
+		return -1;
+	}
 	if (param->auth_alg == ODP_AUTH_ALG_AES_GMAC &&
 	    param->cipher_alg != ODP_CIPHER_ALG_NULL) {
 		*status = ODP_CRYPTO_SES_ERR_ALG_COMBO;
