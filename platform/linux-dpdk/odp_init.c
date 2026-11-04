@@ -34,6 +34,7 @@ enum init_stage {
 	NO_INIT = 0,    /* No init stages completed */
 	LIBCONFIG_INIT,
 	CPUMASK_INIT,
+	DPDK_INIT,
 	SYSINFO_INIT,
 	CPU_CYCLES_INIT,
 	TIME_INIT,
@@ -284,6 +285,15 @@ static int _odp_init_dpdk(const char *cmdline)
 	return 0;
 }
 
+static int _odp_term_dpdk(void)
+{
+	if (rte_eal_cleanup()) {
+		_ODP_ERR("rte_eal_cleanup() failed\n");
+		return -1;
+	}
+	return 0;
+}
+
 void odp_init_param_init(odp_init_t *param)
 {
 	memset(param, 0, sizeof(odp_init_t));
@@ -503,6 +513,13 @@ static int term_global(enum init_stage stage)
 		}
 		/* Fall through */
 
+	case DPDK_INIT:
+		if (_odp_term_dpdk()) {
+			_ODP_ERR("DPDK term failed.\n");
+			rc = -1;
+		}
+		/* Fall through */
+
 	case CPUMASK_INIT:
 		if (_odp_cpumask_term_global()) {
 			_ODP_ERR("ODP cpumask term failed.\n");
@@ -563,8 +580,9 @@ int odp_init_global(odp_instance_t *instance,
 
 	if (_odp_init_dpdk((const char *)platform_params)) {
 		_ODP_ERR("ODP dpdk init failed.\n");
-		return -1;
+		goto init_failed;
 	}
+	stage = DPDK_INIT;
 
 	if (_odp_system_info_init()) {
 		_ODP_ERR("ODP system_info init failed.\n");
