@@ -1628,6 +1628,11 @@ int odp_pool_ext_populate(odp_pool_t pool_hdl, void *buf[], uint32_t buf_size,
 		return -1;
 	}
 
+	if (pool->populate_done) {
+		_ODP_ERR("Pool already populated\n");
+		return -1;
+	}
+
 	if (pool->type == ODP_POOL_BUFFER) {
 		expected_buf_size = pool->ext_param.buf.buf_size;
 		hdr_offset = sizeof(odp_buffer_hdr_t) + pool->ext_param.buf.app_header_size;
@@ -1636,7 +1641,7 @@ int odp_pool_ext_populate(odp_pool_t pool_hdl, void *buf[], uint32_t buf_size,
 		hdr_offset = sizeof(odp_packet_hdr_t) + pool->ext_param.pkt.app_header_size;
 	}
 
-	if (buf_size != expected_buf_size) {
+	if (num && buf_size != expected_buf_size) {
 		_ODP_ERR("Bad buffer size\n");
 		return -1;
 	}
@@ -1648,19 +1653,16 @@ int odp_pool_ext_populate(odp_pool_t pool_hdl, void *buf[], uint32_t buf_size,
 		return -1;
 	}
 
-	if ((num_populated + num == pool->num) &&
-	    !(flags & ODP_POOL_POPULATE_DONE)) {
-		_ODP_ERR("Missing ODP_POOL_POPULATE_DONE flag\n");
-		return -1;
-	}
-
 	if ((num_populated + num < pool->num) && flags) {
 		_ODP_ERR("Unexpected flags: 0x%x\n", flags);
 		return -1;
 	}
 
-	if (num == 0)
+	if (num == 0) {
+		if (flags & ODP_POOL_POPULATE_DONE)
+			pool->populate_done = 1;
 		return 0;
+	}
 
 	/* Validate all buffers before modifying anything, so that a failed call is a no-op */
 	for (uint32_t i = 0; i < num; i++) {
@@ -1733,6 +1735,9 @@ int odp_pool_ext_populate(odp_pool_t pool_hdl, void *buf[], uint32_t buf_size,
 		init_ext_obj(mp, (void *)&mb_ctor_arg, (void *)mb, pool->num_populated);
 		pool->num_populated++;
 	}
+
+	if (flags & ODP_POOL_POPULATE_DONE)
+		pool->populate_done = 1;
 
 	free(mbufs);
 	return 0;

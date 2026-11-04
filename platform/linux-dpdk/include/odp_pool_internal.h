@@ -71,6 +71,7 @@ typedef struct ODP_ALIGNED_CACHE {
 	uint32_t		uarea_size;
 	uint32_t		trailer_size; /* Endmark size */
 	uint32_t		num_populated;
+	uint8_t			populate_done;
 	odp_pool_type_t		type_2; /* Pool type from application PoV */
 	char			name[ODP_POOL_NAME_LEN];
 
