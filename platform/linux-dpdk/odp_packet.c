@@ -1170,7 +1170,7 @@ void odp_packet_print_data(odp_packet_t pkt, uint32_t offset,
 	len += _odp_snprint(&str[len], n - len,
 			    "  buf index      %" PRIu32 "\n", hdr->event_hdr.index);
 	len += _odp_snprint(&str[len], n - len,
-			    "  segcount       %" PRIu8 "\n", hdr->mb.nb_segs);
+			    "  segcount       %" PRIu16 "\n", hdr->mb.nb_segs);
 	len += _odp_snprint(&str[len], n - len,
 			    "  data len       %" PRIu32 "\n", data_len);
 	len += _odp_snprint(&str[len], n - len,
