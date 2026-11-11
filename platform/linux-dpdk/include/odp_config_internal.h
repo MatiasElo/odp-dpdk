@@ -149,20 +149,12 @@ extern "C" {
 /*
  * Number of shared memory blocks reserved for implementation internal use.
  *
- * Each packet pool requires one SHM block, periodic timer pools need extra
- * block for freq array, 20 blocks are reserved for ODP module global data, and
- * one block per packet I/O is reserved for TX completion usage.
+ * Each pool typically requires 4 SHM blocks (=memzones), periodic timer pools
+ * need extra block for freq array, 20 blocks are reserved for ODP module global
+ * data, and one block per packet I/O is reserved for TX completion usage.
  */
-#define CONFIG_INTERNAL_SHM_BLOCKS (CONFIG_POOLS + CONFIG_MAX_TIMER_POOLS + \
+#define CONFIG_INTERNAL_SHM_BLOCKS (4 * CONFIG_POOLS + CONFIG_MAX_TIMER_POOLS + \
 				    20 + CONFIG_PKTIO_ENTRIES)
-
-/*
- * Maximum number of shared memory blocks.
- *
- * This is the number of separate SHM blocks that an application can reserve
- * concurrently.
- */
-#define CONFIG_SHM_BLOCKS 64
 
 /*
  * Maximum event burst size
